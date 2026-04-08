@@ -1,4 +1,4 @@
-export const getApiUrl = () => process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+export const getApiUrl = () => process.env.NEXT_PUBLIC_API_URL || 'http://localhost:18000';
 
 let refreshPromise: Promise<boolean> | null = null;
 

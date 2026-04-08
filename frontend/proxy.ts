@@ -41,7 +41,7 @@ export async function proxy(req: NextRequest) {
   }
 
   // Need to refresh
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:18000';
   try {
     const refreshRes = await fetch(`${apiUrl}/auth/refresh`, {
       method: 'POST',
