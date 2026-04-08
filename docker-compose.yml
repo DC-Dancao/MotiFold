@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: password
       POSTGRES_DB: motifold
     ports:
-      - "5434:5432"
+      - "15432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -18,7 +18,7 @@ services:
   redis:
     image: redis:7
     ports:
-      - "6380:6379"
+      - "16379:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes
@@ -29,16 +29,14 @@ services:
       retries: 5
 
   api:
-    build: .
+    build: ./backend
     ports:
-      - "8001:8000"
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://user:password@postgres:5432/motifold
-      - REDIS_URL=redis://redis:6379/0
-      - SECRET_KEY=your_super_secret_key
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - "18000:8000"
+    env_file:
+      - ./backend/.env
+
     volumes:
-      - .:/app
+      - ./backend:/app
     depends_on:
       postgres:
         condition: service_healthy
@@ -47,20 +45,29 @@ services:
     command: sh -c "alembic upgrade head && fastapi run app/main.py --host 0.0.0.0 --port 8000"
 
   celery:
-    build: .
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://user:password@postgres:5432/motifold
-      - REDIS_URL=redis://redis:6379/0
-      - SECRET_KEY=your_super_secret_key
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    build: ./backend
+    env_file:
+      - ./backend/.env
+
     volumes:
-      - .:/app
+      - ./backend:/app
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     command: celery -A app.worker:celery_app worker --loglevel=info
+
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    ports:
+      - "13000:3000"
+    volumes:
+      - ./frontend:/app
+    environment:
+      - NODE_ENV=development
+    command: sh -c "npm install -g pnpm && pnpm install && pnpm dev"
 
 volumes:
   postgres_data:
