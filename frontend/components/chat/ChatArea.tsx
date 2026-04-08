@@ -69,9 +69,9 @@ export default function ChatArea() {
             const chatsData = await chatsRes.json();
             const chats = Array.isArray(chatsData) ? chatsData : chatsData.items ?? [];
             if (chats.length > 0) {
-              router.replace(`/?chatId=${chats[0].id}`);
+              router.replace(`/chat?chatId=${chats[0].id}`);
             } else {
-              router.replace(`/?chatId=new`);
+              router.replace(`/chat?chatId=new`);
             }
           }
           return;
@@ -151,7 +151,7 @@ export default function ChatArea() {
           title: newChat.title || 'New Chat',
           createdAt: newChat.created_at
         });
-        router.replace(`/?chatId=${actualChatId}`);
+        router.replace(`/chat?chatId=${actualChatId}`);
       }
 
       const resolvedChatId = typeof actualChatId === 'number' ? actualChatId : parseInt(actualChatId, 10);
@@ -303,7 +303,7 @@ export default function ChatArea() {
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {/* System Message */}
           <div className="flex justify-center">
-            <div className="bg-slate-100 text-slate-500 text-xs px-3 py-1 rounded-full">
+            <div className="bg-slate-100 text-slate-500 text-xs px-3 py-1 rounded-full" suppressHydrationWarning>
               今天 {new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
             </div>
           </div>
