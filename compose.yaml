@@ -14,6 +14,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   redis:
     image: redis:7
@@ -27,48 +28,64 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+
+  db-migration:
+    build:
+      context: ./backend
+      target: prod
+    env_file:
+      - ./backend/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: alembic upgrade head
+    restart: "no"
 
   api:
-    build: ./backend
+    build:
+      context: ./backend
+      target: prod
     ports:
       - "18000:8000"
     env_file:
       - ./backend/.env
-
-    volumes:
-      - ./backend:/app
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: sh -c "alembic upgrade head && fastapi run app/main.py --host 0.0.0.0 --port 8000"
+      db-migration:
+        condition: service_completed_successfully
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
 
   celery:
-    build: ./backend
+    build:
+      context: ./backend
+      target: prod
     env_file:
       - ./backend/.env
-
-    volumes:
-      - ./backend:/app
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      db-migration:
+        condition: service_completed_successfully
     command: celery -A app.worker:celery_app worker --loglevel=info
+    restart: unless-stopped
 
   frontend:
-    image: node:20-alpine
-    working_dir: /app
+    build:
+      context: ./frontend
     ports:
       - "13000:3000"
-    volumes:
-      - ./frontend:/app
     environment:
-      - NODE_ENV=development
-    command: sh -c "npm install -g pnpm && pnpm install && pnpm dev"
+      NODE_ENV: production
+    restart: unless-stopped
 
 volumes:
   postgres_data:
   redis_data:
+  frontend_node_modules:

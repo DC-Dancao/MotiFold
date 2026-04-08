@@ -66,7 +66,8 @@ cp backend/.env.example backend/.env
 # 编辑 backend/.env 文件，填入你的 OpenAI API Key: OPENAI_API_KEY=sk-...
 
 # 启动全栈服务 (Postgres, Redis, API, Celery, Frontend)
-docker-compose up -d --build
+make up
+# 或者直接使用 docker compose: docker compose up -d --build
 ```
 *API 服务将在宿主机端口映射为 `http://localhost:18000`。MCP SSE 端点位于 `http://localhost:18000/mcp`。*
 *前端应用将在宿主机端口映射为 `http://localhost:13000`。*
