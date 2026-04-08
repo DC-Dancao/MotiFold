@@ -34,7 +34,7 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 FROM base AS dev
 
 # Install dependencies including dev dependencies
-RUN uv pip install --system -r pyproject.toml --extra dev
+RUN uv pip install --system -r pyproject.toml --group dev
 
 # Copy the rest of the application
 COPY --chown=appuser:appuser . .
