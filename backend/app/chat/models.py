@@ -13,6 +13,9 @@ class Chat(Base):
     owner = relationship("User", back_populates="chats")
     workspace = relationship("Workspace", back_populates="chats")
 
+from app.auth.models import User
+from app.workspace.models import Workspace
+
 class Message(Base):
     __tablename__ = "messages"
     id = Column(Integer, primary_key=True, index=True)

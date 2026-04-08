@@ -304,7 +304,7 @@ export default function ChatArea() {
           {/* System Message */}
           <div className="flex justify-center">
             <div className="bg-slate-100 text-slate-500 text-xs px-3 py-1 rounded-full" suppressHydrationWarning>
-              今天 {new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+              {`今天 ${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`}
             </div>
           </div>
 
