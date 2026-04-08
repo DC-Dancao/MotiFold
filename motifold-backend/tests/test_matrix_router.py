@@ -1,8 +1,8 @@
 import pytest
 from types import SimpleNamespace
 
-from app.routers import matrix_router
-from app.routers.matrix_router import (
+from app.matrix import service as matrix_service
+from app.matrix.schemas import (
     BatchEvaluateConsistencyResponse,
     EvaluateConsistencyReasons,
     EvaluateConsistencyRequest,
@@ -11,7 +11,9 @@ from app.routers.matrix_router import (
     LLMGenerateMorphologicalResponse,
     MorphologicalParameter,
     PairEvaluateConsistencyResponse,
+    normalize_morphological_response,
 )
+from app.matrix.models import MorphologicalAnalysis
 
 
 def build_test_parameters():
@@ -25,7 +27,7 @@ def build_test_parameters():
 def test_build_consistency_table_contains_all_pairs():
     parameters = build_test_parameters()
 
-    table, pair_order = matrix_router.build_consistency_table(parameters)
+    table, pair_order = matrix_service.build_consistency_table(parameters)
 
     assert pair_order == [(0, 1), (0, 2), (1, 2)]
     assert "Pair [0, 1]" in table
@@ -66,7 +68,7 @@ def test_apply_consistency_results_maps_statuses():
         ]
     )
 
-    matrix, results_list = matrix_router.apply_consistency_results(parameters, response)
+    matrix, results_list = matrix_service.apply_consistency_results(parameters, response)
 
     assert matrix["0_1"]["0_0"] == "red"
     assert matrix["0_1"]["1_1"] == "yellow"
@@ -93,7 +95,7 @@ def test_normalize_morphological_response_enforces_7x7():
         ]
     )
 
-    result = matrix_router.normalize_morphological_response(raw_response)
+    result = normalize_morphological_response(raw_response)
 
     assert len(result.parameters) == 7
     assert result.parameters[0].name == "Mission Scope"
@@ -148,13 +150,10 @@ async def test_generate_morphological_returns_normalized_7x7(monkeypatch, test_u
             return self.structured
 
     fake_llm = FakeLLM(response)
-    monkeypatch.setattr(matrix_router, "get_llm", lambda model_name=None, **kwargs: fake_llm)
+    monkeypatch.setattr(matrix_service, "get_llm", lambda model_name=None, **kwargs: fake_llm)
 
-    result = await matrix_router.generate_morphological(
-            GenerateMorphologicalRequest(focus_question="How should an alliance surveillance system be configured?"),
-            current_user=test_user,
-            db=db_session,
-        )
+    result = await matrix_service.generate_morphological_parameters("How should an alliance surveillance system be configured?")
+
 
     assert fake_llm.structured.calls == 1
     assert len(result.parameters) == 7
@@ -228,16 +227,13 @@ async def test_evaluate_consistency_uses_single_llm_call(monkeypatch, test_user,
             return self.structured
 
     fake_llm = FakeLLM(response)
-    monkeypatch.setattr(matrix_router, "get_llm", lambda model_name=None, **kwargs: fake_llm)
+    monkeypatch.setattr(matrix_service, "get_llm", lambda model_name=None, **kwargs: fake_llm)
 
-    result = await matrix_router.evaluate_consistency(
-            EvaluateConsistencyRequest(analysis_id=analysis.id, parameters=parameters),
-            current_user=test_user,
-            db=db_session,
-        )
+    result = await matrix_service.evaluate_morphological_consistency(parameters)
+
 
     assert fake_llm.structured.calls == 1
-    assert result.matrix["0_1"]["0_0"] == "red"
-    assert result.matrix["0_2"]["1_1"] == "yellow"
-    assert result.matrix["1_2"]["0_0"] == "green"
-    assert len(result.results_list) == 3
+    assert result["matrix"]["0_1"]["0_0"] == "red"
+    assert result["matrix"]["0_2"]["1_1"] == "yellow"
+    assert result["matrix"]["1_2"]["0_0"] == "green"
+    assert len(result["results_list"]) == 3

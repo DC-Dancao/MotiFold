@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import GlobalNotification from "./components/GlobalNotification";
+import GlobalNotification from "../components/layout/GlobalNotification";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",

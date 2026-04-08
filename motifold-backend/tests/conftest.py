@@ -9,7 +9,7 @@ from httpx import AsyncClient, ASGITransport
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
-from app.config import settings
+from app.core.config import settings
 
 # Parse the URL to get connection details for asyncpg
 parsed_url = urlparse("postgresql+asyncpg://user:password@localhost:5434/motifold_test")
@@ -39,10 +39,10 @@ async def ensure_test_database():
 TEST_DATABASE_URL = "postgresql+asyncpg://user:password@localhost:5434/motifold_test"
 settings.DATABASE_URL = TEST_DATABASE_URL
 
-from app.auth import get_current_user
-from app.database import get_alembic_config, get_db
+from app.core.security import get_current_user
+from app.core.database import get_alembic_config, get_db
 from app.main import app
-from app.models import User
+from app.auth.models import User
 
 engine = create_async_engine(TEST_DATABASE_URL, echo=False)
 TestingSessionLocal = async_sessionmaker(engine, expire_on_commit=False)

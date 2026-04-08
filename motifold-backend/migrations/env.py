@@ -7,8 +7,15 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
-from app.config import settings
-from app.models import Base
+from app.core.config import settings
+from app.core.database import Base
+
+# Import all models so they register with Base.metadata
+from app.auth.models import User  # noqa: F401
+from app.workspace.models import Workspace  # noqa: F401
+from app.chat.models import Chat, Message  # noqa: F401
+from app.matrix.models import Keyword, MorphologicalAnalysis  # noqa: F401
+from app.blackboard.models import BlackboardData  # noqa: F401
 
 config = context.config
 

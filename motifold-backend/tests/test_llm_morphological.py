@@ -6,10 +6,10 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from langchain_core.messages import SystemMessage, HumanMessage
-from app.llm import get_llm
+from app.llm.factory import get_llm
 
-from app.matrix_service import generate_morphological_parameters, evaluate_morphological_consistency
-from app.routers.matrix_router import MorphologicalParameter
+from app.matrix.service import generate_morphological_parameters, evaluate_morphological_consistency
+from app.matrix.schemas import MorphologicalParameter
 
 async def test_generation():
     focus_question = "How to design a futuristic surveillance system?"

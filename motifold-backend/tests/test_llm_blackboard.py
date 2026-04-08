@@ -6,7 +6,7 @@ import json
 # Add the app directory to sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from app.blackboard_agent import run_blackboard_agent
+from app.blackboard.agent import run_blackboard_agent
 
 async def test_blackboard_generation():
     topic = "鱼香肉丝的做法"

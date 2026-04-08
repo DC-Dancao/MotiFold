@@ -1,5 +1,6 @@
 import pytest
-from app.models import Workspace, Chat
+from app.workspace.models import Workspace
+from app.chat.models import Chat
 
 pytestmark = pytest.mark.asyncio
 

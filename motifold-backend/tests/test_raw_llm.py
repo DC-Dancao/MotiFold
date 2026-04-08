@@ -6,7 +6,7 @@ import json
 # Add the app directory to sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from app.llm import get_llm
+from app.llm.factory import get_llm
 from langchain_core.messages import SystemMessage, HumanMessage
 
 async def test_raw_llm_streaming():

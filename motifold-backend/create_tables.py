@@ -1,6 +1,6 @@
 from alembic import command
 
-from app.database import get_alembic_config
+from app.core.database import get_alembic_config
 
 
 def main() -> None:

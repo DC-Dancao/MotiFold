@@ -1,6 +1,6 @@
 import os
 import asyncio
-from app.mcp_server import create_mcp_server, _current_user_id
+from app.mcp.server import create_mcp_server, _current_user_id
 
 def main() -> None:
     """Start the Motifold MCP server with local defaults (stdio transport)."""
