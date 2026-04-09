@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     OPENAI_MODEL_PRO: str = "gpt-4o"
     OPENAI_MODEL_MINI: str = "gpt-4o-mini"
 
+    # Deep Research settings
+    DEEP_RESEARCH_MAX_ITERATIONS_STANDARD: int = 3
+    DEEP_RESEARCH_MAX_ITERATIONS_EXTENDED: int = 6
+    DEEP_RESEARCH_MAX_SEARCH_RESULTS_STANDARD: int = 10
+    DEEP_RESEARCH_MAX_SEARCH_RESULTS_EXTENDED: int = 20
+
     # Comma-separated list or JSON array
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",

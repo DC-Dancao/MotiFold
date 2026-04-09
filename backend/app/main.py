@@ -12,6 +12,7 @@ from app.chat.router import router as chat_router
 from app.matrix.router import router as matrix_router
 from app.notification.router import router as notification_router
 from app.blackboard.router import router as blackboard_router
+from app.research.router import router as research_router
 from app.mcp.server import MCPMiddleware
 
 # Import all models so Alembic/SQLAlchemy can find them via Base.metadata
@@ -48,6 +49,7 @@ app.include_router(chat_router, prefix="/chats", tags=["chats"])
 app.include_router(matrix_router)
 app.include_router(notification_router)
 app.include_router(blackboard_router)
+app.include_router(research_router)
 
 @app.get("/")
 def read_root():
