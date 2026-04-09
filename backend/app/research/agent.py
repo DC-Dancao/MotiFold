@@ -142,13 +142,13 @@ async def plan_search(
         "message": "Planning search queries...",
     })
 
-    topic_text = get_buffer_string(messages)
+    topic = state.get("research_topic", "")
 
     try:
         result = await _llm_structured(
             "pro",
             SearchPlan,
-            RESEARCH_TOPIC_PROMPT.format(message=topic_text, date=date),
+            SEARCH_PLAN_PROMPT.format(topic=topic, date=date),
             "",
         )
 
