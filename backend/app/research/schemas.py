@@ -31,3 +31,37 @@ class ResearchResult(BaseModel):
     report: str
     iterations: int
     level: ResearchLevel
+
+
+class SaveResearchRequest(BaseModel):
+    id: Optional[int] = None
+    query: str
+    research_topic: str
+    report: str
+    notes: list[str]
+    queries: list[str]
+    level: ResearchLevel
+    iterations: int
+
+
+class ResearchReportSchema(BaseModel):
+    id: int
+    query: str
+    research_topic: str
+    report: str
+    notes: list[str]
+    queries: list[str]
+    level: ResearchLevel
+    iterations: int
+    created_at: str
+    updated_at: str
+
+
+class ResearchHistoryItem(BaseModel):
+    id: int
+    query: str
+    research_topic: str
+    level: ResearchLevel
+    iterations: int
+    created_at: str
+    updated_at: str

@@ -4,13 +4,25 @@ FastAPI router for Deep Research endpoints.
 
 import json
 import uuid
+from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 
 from app.auth.models import User
+from app.core.database import get_db
 from app.core.security import get_current_user
-from app.research.schemas import ResearchResult, ResearchStart, ResearchStatus
+from app.research.models import ResearchReport
+from app.research.schemas import (
+    ResearchHistoryItem,
+    ResearchResult,
+    ResearchStart,
+    ResearchStatus,
+    SaveResearchRequest,
+    ResearchReportSchema,
+)
 from app.research.state import LEVEL_DEFAULTS, ResearchLevel
 from app.research.stream import (
     get_processing_status,
@@ -113,3 +125,141 @@ async def get_result(
         return ResearchResult(**data)
 
     raise HTTPException(status_code=404, detail="Research result not found or still in progress")
+
+
+@router.post("/save", response_model=ResearchReportSchema)
+async def save_research_report(
+    req: SaveResearchRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save or update a research report."""
+    notes_json = json.dumps(req.notes)
+    queries_json = json.dumps(req.queries)
+
+    if req.id:
+        stmt = select(ResearchReport).where(
+            ResearchReport.id == req.id,
+            ResearchReport.user_id == current_user.id,
+        )
+        result = await db.execute(stmt)
+        report = result.scalars().first()
+
+        if not report:
+            raise HTTPException(status_code=404, detail="Research report not found")
+
+        report.query = req.query
+        report.research_topic = req.research_topic
+        report.report = req.report
+        report.notes_json = notes_json
+        report.queries_json = queries_json
+        report.level = req.level.value
+        report.iterations = req.iterations
+    else:
+        report = ResearchReport(
+            user_id=current_user.id,
+            query=req.query,
+            research_topic=req.research_topic,
+            report=req.report,
+            notes_json=notes_json,
+            queries_json=queries_json,
+            level=req.level.value,
+            iterations=req.iterations,
+        )
+        db.add(report)
+
+    await db.commit()
+    await db.refresh(report)
+
+    return ResearchReportSchema(
+        id=report.id,
+        query=report.query,
+        research_topic=report.research_topic or "",
+        report=report.report or "",
+        notes=json.loads(report.notes_json),
+        queries=json.loads(report.queries_json),
+        level=ResearchLevel(report.level),
+        iterations=report.iterations,
+        created_at=report.created_at.isoformat() if report.created_at else "",
+        updated_at=report.updated_at.isoformat() if report.updated_at else "",
+    )
+
+
+@router.get("/history", response_model=List[ResearchHistoryItem])
+async def get_research_history(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get all saved research reports for the current user."""
+    stmt = select(ResearchReport).where(
+        ResearchReport.user_id == current_user.id
+    ).order_by(ResearchReport.updated_at.desc())
+
+    result = await db.execute(stmt)
+    reports = result.scalars().all()
+
+    return [
+        ResearchHistoryItem(
+            id=r.id,
+            query=r.query,
+            research_topic=r.research_topic or "",
+            level=ResearchLevel(r.level),
+            iterations=r.iterations,
+            created_at=r.created_at.isoformat() if r.created_at else "",
+            updated_at=r.updated_at.isoformat() if r.updated_at else "",
+        )
+        for r in reports
+    ]
+
+
+@router.get("/{report_id}", response_model=ResearchReportSchema)
+async def get_research_report(
+    report_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a specific research report."""
+    stmt = select(ResearchReport).where(
+        ResearchReport.id == report_id,
+        ResearchReport.user_id == current_user.id,
+    )
+    result = await db.execute(stmt)
+    report = result.scalars().first()
+
+    if not report:
+        raise HTTPException(status_code=404, detail="Research report not found")
+
+    return ResearchReportSchema(
+        id=report.id,
+        query=report.query,
+        research_topic=report.research_topic or "",
+        report=report.report or "",
+        notes=json.loads(report.notes_json),
+        queries=json.loads(report.queries_json),
+        level=ResearchLevel(report.level),
+        iterations=report.iterations,
+        created_at=report.created_at.isoformat() if report.created_at else "",
+        updated_at=report.updated_at.isoformat() if report.updated_at else "",
+    )
+
+
+@router.delete("/{report_id}")
+async def delete_research_report(
+    report_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a research report."""
+    stmt = select(ResearchReport).where(
+        ResearchReport.id == report_id,
+        ResearchReport.user_id == current_user.id,
+    )
+    result = await db.execute(stmt)
+    report = result.scalars().first()
+
+    if not report:
+        raise HTTPException(status_code=404, detail="Research report not found")
+
+    await db.delete(report)
+    await db.commit()
+    return {"status": "success"}

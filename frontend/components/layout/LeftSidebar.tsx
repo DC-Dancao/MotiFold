@@ -49,6 +49,15 @@ interface BlackboardHistory {
   [key: string]: unknown;
 }
 
+interface ResearchHistory {
+  id: number;
+  query?: string;
+  research_topic?: string;
+  updated_at: string;
+  level?: string;
+  [key: string]: unknown;
+}
+
 export default function LeftSidebar() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -66,6 +75,10 @@ export default function LeftSidebar() {
   // Blackboard History State
   const [blackboardHistory, setBlackboardHistory] = useState<BlackboardHistory[]>([]);
   const [isLoadingBlackboard, setIsLoadingBlackboard] = useState(false);
+
+  // Research History State
+  const [researchHistory, setResearchHistory] = useState<ResearchHistory[]>([]);
+  const [isLoadingResearch, setIsLoadingResearch] = useState(false);
   
   const [skip, setSkip] = useState(0);
   const [isChatsOpen, setIsChatsOpen] = useState(true);
@@ -177,6 +190,8 @@ export default function LeftSidebar() {
       fetchMorphologicalHistory();
     } else if (pathname === '/blackboard') {
       fetchBlackboardHistory();
+    } else if (pathname === '/research') {
+      fetchResearchHistory();
     }
   }, [pathname]);
 
@@ -186,6 +201,8 @@ export default function LeftSidebar() {
         fetchMorphologicalHistory();
       } else if (pathname === '/blackboard') {
         fetchBlackboardHistory();
+      } else if (pathname === '/research') {
+        fetchResearchHistory();
       }
     };
     window.addEventListener('refresh-history', handleRefreshHistory);
@@ -249,9 +266,29 @@ export default function LeftSidebar() {
     }
   };
 
+  const fetchResearchHistory = async () => {
+    try {
+      setIsLoadingResearch(true);
+      const apiUrl = getApiUrl();
+      const res = await fetchWithAuth(`${apiUrl}/research/history`);
+      if (res.ok) {
+        const data = await res.json();
+        setResearchHistory(data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch research history", error);
+    } finally {
+      setIsLoadingResearch(false);
+    }
+  };
+
   const handleSelectMorphologicalAnalysis = (id: number) => {
     // We dispatch an event to let MorphologicalTab know which analysis to load
     window.dispatchEvent(new CustomEvent('load-morphological-analysis', { detail: { id } }));
+  };
+
+  const handleSelectResearch = (id: number) => {
+    window.dispatchEvent(new CustomEvent('load-research-report', { detail: { id } }));
   };
 
   const handleDeleteMorphologicalClick = (e: React.MouseEvent, id: number) => {
@@ -260,9 +297,15 @@ export default function LeftSidebar() {
     setOpenMenuId(null);
   };
 
+  const handleDeleteResearchClick = (e: React.MouseEvent, id: number) => {
+    e.stopPropagation();
+    setChatToDelete(id);
+    setOpenMenuId(null);
+  };
+
   const confirmDeleteMorphological = async () => {
     if (!chatToDelete) return;
-    
+
     try {
       const apiUrl = getApiUrl();
       const res = await fetchWithAuth(`${apiUrl}/matrix/morphological/${chatToDelete}`, {
@@ -275,6 +318,25 @@ export default function LeftSidebar() {
       }
     } catch (error) {
       console.error("Failed to delete morphological analysis:", error);
+    } finally {
+      setChatToDelete(null);
+    }
+  };
+
+  const confirmDeleteResearch = async () => {
+    if (!chatToDelete) return;
+
+    try {
+      const apiUrl = getApiUrl();
+      const res = await fetchWithAuth(`${apiUrl}/research/${chatToDelete}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        setResearchHistory(prev => prev.filter(a => a.id !== chatToDelete));
+        window.dispatchEvent(new CustomEvent('deleted-research-report', { detail: { id: chatToDelete } }));
+      }
+    } catch (error) {
+      console.error("Failed to delete research report:", error);
     } finally {
       setChatToDelete(null);
     }
@@ -480,7 +542,7 @@ export default function LeftSidebar() {
               onClick={() => setIsChatsOpen(!isChatsOpen)}
             >
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest group-hover:text-slate-600 transition-colors">
-                {pathname === '/matrix' ? `形态分析历史 (${morphologicalHistory.length})` : pathname === '/blackboard' ? `黑板历史 (${blackboardHistory.length})` : `对话 (${chats.length})`}
+                {pathname === '/matrix' ? `形态分析历史 (${morphologicalHistory.length})` : pathname === '/blackboard' ? `黑板历史 (${blackboardHistory.length})` : pathname === '/research' ? `研究报告 (${researchHistory.length})` : `对话 (${chats.length})`}
               </span>
               <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform duration-200 ${isChatsOpen ? '' : '-rotate-90'}`} />
             </div>
@@ -641,6 +703,84 @@ export default function LeftSidebar() {
                                   className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors"
                                 >
                                   <Trash2 className="w-4 h-4" /> 删除方案
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </>
+                ) : pathname === '/research' ? (
+                  <>
+                    <button
+                      onClick={() => window.dispatchEvent(new CustomEvent('new-research'))}
+                      className={`w-full text-left px-3 py-2 mb-2 rounded-xl transition-colors flex items-center justify-center gap-2 text-sm font-medium flex-shrink-0 bg-indigo-50 border border-indigo-100 text-indigo-700 hover:bg-indigo-100 shadow-sm`}
+                    >
+                      <Plus className="w-4 h-4 flex-shrink-0" /> 新建研究
+                    </button>
+                    <button
+                      onClick={() => router.push('/chat?chatId=new')}
+                      className={`w-full text-left px-3 py-2 mb-2 rounded-xl transition-colors flex items-center justify-center gap-2 text-sm font-medium flex-shrink-0 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-indigo-600 shadow-sm`}
+                    >
+                      返回对话
+                    </button>
+                    {isLoadingResearch ? (
+                      <div className="flex justify-center py-4">
+                        <Loader2 className="w-5 h-5 text-slate-400 animate-spin" />
+                      </div>
+                    ) : researchHistory.length === 0 ? (
+                      <div className="text-center text-xs text-slate-400 py-4">暂无历史记录</div>
+                    ) : (
+                      researchHistory.map(report => (
+                        <div key={report.id} className="relative group">
+                          <button
+                            onClick={() => handleSelectResearch(report.id)}
+                            className={`w-full text-left px-3 py-2.5 rounded-xl transition-all duration-200 flex items-start gap-3 hover:bg-slate-50 border border-transparent`}
+                          >
+                            <div className="mt-0.5 flex-shrink-0 text-slate-400 group-hover:text-indigo-500">
+                              <Search className="w-3.5 h-3.5" />
+                            </div>
+                            <div className="flex-1 min-w-0 pr-6">
+                              <div className="text-sm font-medium truncate text-slate-700">
+                                {report.research_topic || report.query || '未命名研究'}
+                              </div>
+                              <div className="text-xs text-slate-400 truncate mt-0.5 flex justify-between">
+                                <span>{new Date(report.updated_at).toLocaleDateString()}</span>
+                                {report.level && <span className="capitalize">{report.level}</span>}
+                              </div>
+                            </div>
+                          </button>
+
+                          {/* Hover Menu Button */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenMenuId(openMenuId === report.id ? null : report.id);
+                            }}
+                            className={`absolute right-2 top-2.5 p-1.5 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-200/50 transition-all duration-200 ${
+                              openMenuId === report.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                            }`}
+                          >
+                            <MoreHorizontal className="w-4 h-4" />
+                          </button>
+
+                          {/* Dropdown Menu */}
+                          {openMenuId === report.id && (
+                            <>
+                              <div
+                                className="fixed inset-0 z-40"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenMenuId(null);
+                                }}
+                              />
+                              <div className="absolute right-2 top-10 w-32 bg-white rounded-lg shadow-lg border border-slate-100 py-1 z-50 animate-in fade-in zoom-in duration-200">
+                                <button
+                                  onClick={(e) => handleDeleteResearchClick(e, report.id)}
+                                  className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors"
+                                >
+                                  <Trash2 className="w-4 h-4" /> 删除报告
                                 </button>
                               </div>
                             </>
@@ -852,7 +992,7 @@ export default function LeftSidebar() {
                 取消
               </button>
               <button
-                onClick={pathname === '/matrix' ? confirmDeleteMorphological : pathname === '/blackboard' ? confirmDeleteBlackboard : confirmDeleteChat}
+                onClick={pathname === '/matrix' ? confirmDeleteMorphological : pathname === '/blackboard' ? confirmDeleteBlackboard : pathname === '/research' ? confirmDeleteResearch : confirmDeleteChat}
                 className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors"
               >
                 删除
