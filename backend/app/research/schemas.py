@@ -24,6 +24,7 @@ class ResearchStatus(BaseModel):
     progress: float
     iteration: Optional[int] = None
     level: ResearchLevel
+    task_id: str
 
 
 class ResearchResult(BaseModel):

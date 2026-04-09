@@ -54,6 +54,7 @@ async def start_research(
         progress=0.0,
         iteration=None,
         level=level,
+        task_id=task_id,
     )
 
 

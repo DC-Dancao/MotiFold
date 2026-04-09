@@ -4,16 +4,17 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { fetchWithAuth, getApiUrl } from '../../app/lib/api';
 import { clearAuthCookies } from '../../app/lib/auth-actions';
-import { 
-  MessageSquare, 
-  ChevronDown, 
-  Plus, 
+import {
+  MessageSquare,
+  ChevronDown,
+  Plus,
   Network,
   Presentation,
   Loader2,
   MoreHorizontal,
   Trash2,
-  X
+  X,
+  Search
 } from 'lucide-react';
 
 interface Chat {
@@ -760,17 +761,25 @@ export default function LeftSidebar() {
                   <span className="font-medium">形态分析</span>
                 </button>
                 
-                <button 
+                <button
                   onClick={() => router.push('/blackboard')}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 ${pathname === '/blackboard' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
                 >
                   <Presentation className={`w-4 h-4 flex-shrink-0 ${pathname === '/blackboard' ? 'text-indigo-600' : 'text-slate-400'}`} />
                   <span className="font-medium">黑板讲解</span>
                 </button>
+
+                <button
+                  onClick={() => router.push('/research')}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 ${pathname === '/research' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
+                >
+                  <Search className={`w-4 h-4 flex-shrink-0 ${pathname === '/research' ? 'text-indigo-600' : 'text-slate-400'}`} />
+                  <span className="font-medium">深度研究</span>
+                </button>
               </div>
             )}
           </div>
-          
+
         </div>
       </aside>
 
