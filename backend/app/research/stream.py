@@ -2,20 +2,36 @@
 Redis SSE streaming helpers for Deep Research.
 """
 
+import asyncio
 import json
+import weakref
 
 import redis.asyncio as aioredis
 
 from app.core.config import settings
 
-redis_client: aioredis.Redis = None
+# Per-event-loop redis client cache — WeakKeyDictionary auto-removes entries
+# when the loop is garbage-collected, avoiding connection leaks.
+_redis_per_loop: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, aioredis.Redis] = (
+    weakref.WeakKeyDictionary()
+)
 
 
 async def get_redis() -> aioredis.Redis:
-    global redis_client
-    if redis_client is None:
-        redis_client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
-    return redis_client
+    """Return a redis client for the current event loop, creating one if needed."""
+    loop = asyncio.get_running_loop()
+    client = _redis_per_loop.get(loop)
+    if client is None:
+        client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+        _redis_per_loop[loop] = client
+    return client
+
+
+async def close_redis_clients() -> None:
+    """Close all cached redis clients. Call on application shutdown."""
+    for client in list(_redis_per_loop.values()):
+        await client.aclose()
+    _redis_per_loop.clear()
 
 
 async def publish_event(task_id: str, event: dict):
