@@ -55,6 +55,7 @@ def process_research(
             "notes": [],
             "queries": [],
             "level": level,
+            "task_id": task_id,
         })
 
         # Build graph
@@ -106,6 +107,7 @@ def process_research(
                     "notes": current_notes,
                     "queries": current_queries,
                     "level": level,
+                    "task_id": task_id,
                 })
         except Exception as e:
             logger.error(f"Research failed for task {task_id}: {e}")
@@ -122,6 +124,7 @@ def process_research(
                 "notes": [],
                 "queries": [],
                 "level": level,
+                "task_id": task_id,
             })
 
         # Extract data from final state
@@ -182,6 +185,7 @@ def process_research(
             "notes": notes,
             "queries": queries,
             "level": level,
+            "task_id": task_id,
         })
         await clear_processing_flag(task_id)
         await publish_event(task_id, {
