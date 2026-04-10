@@ -28,6 +28,7 @@ from app.research.stream import (
     get_processing_status,
     get_redis,
     publish_event,
+    set_processing_flag,
     subscribe_stream,
 )
 
@@ -49,6 +50,9 @@ async def start_research(
     default_iters, default_results = LEVEL_DEFAULTS.get(level, (3, 10))
     max_iters = data.max_iterations if data.max_iterations is not None else default_iters
     max_res = data.max_results if data.max_results is not None else default_results
+
+    # Set processing flag BEFORE enqueueing to avoid race condition with SSE stream
+    await set_processing_flag(task_id)
 
     # Enqueue Celery task
     from app.research.tasks import process_research
@@ -97,10 +101,20 @@ async def stream_research(
             async for message in pubsub.listen():
                 if message["type"] == "message":
                     data = message["data"]
-                    if data == "[DONE]":
-                        yield f"data: {json.dumps({'type': 'done'})}\n\n"
-                        break
-                    yield f"data: {data}\n\n"
+                    # Check for [DONE] (published as {"type": "[DONE]"} from tasks)
+                    try:
+                        parsed = json.loads(data)
+                        if parsed.get("type") == "[DONE]":
+                            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                            break
+                        # Emit original data for other events
+                        yield f"data: {data}\n\n"
+                    except json.JSONDecodeError:
+                        # Plain string "[DONE]" fallback
+                        if data == "[DONE]":
+                            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                            break
+                        yield f"data: {data}\n\n"
         finally:
             await pubsub.unsubscribe(f"research_stream_{task_id}")
             await pubsub.close()
