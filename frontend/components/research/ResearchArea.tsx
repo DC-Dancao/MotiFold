@@ -79,12 +79,18 @@ export default function ResearchArea() {
       }
     };
 
+    const handleNewResearch = () => {
+      handleResetToNew();
+    };
+
     window.addEventListener('load-research-report', handleLoadReport);
     window.addEventListener('deleted-research-report', handleDeletedReport);
+    window.addEventListener('new-research', handleNewResearch);
 
     return () => {
       window.removeEventListener('load-research-report', handleLoadReport);
       window.removeEventListener('deleted-research-report', handleDeletedReport);
+      window.removeEventListener('new-research', handleNewResearch);
     };
   }, [currentReportId]);
 
