@@ -24,6 +24,8 @@ interface SavedReport {
   iterations: number;
   created_at: string;
   updated_at: string;
+  status?: 'running' | 'done' | 'error';
+  task_id?: string;
 }
 
 interface HistoryItem {
@@ -92,6 +94,13 @@ export default function ResearchArea() {
       const res = await fetchWithAuth(`${apiUrl}/research/${id}`);
       if (res.ok) {
         const data: SavedReport = await res.json();
+
+        // If task is still running, use SSE rejoin instead of static data
+        if (data.status === 'running' && data.task_id) {
+          await rejoinResearch(data.task_id, data);
+          return;
+        }
+
         setCurrentReportId(data.id);
         setQueryInput(data.query);
         setResearchTopic(data.research_topic);
@@ -107,6 +116,102 @@ export default function ResearchArea() {
     } catch (error) {
       console.error("Failed to load report", error);
     }
+  };
+
+  const rejoinResearch = async (taskId: string, reportData?: SavedReport) => {
+    setIsRunning(true);
+    setStatus('重新连接中...');
+    setError(null);
+
+    // Pre-populate from DB record if available
+    if (reportData) {
+      setQueryInput(reportData.query);
+      setResearchTopic(reportData.research_topic || '');
+      setNotes(reportData.notes || []);
+      setQueries(reportData.queries || []);
+      setSelectedLevel(reportData.level);
+      setMaxIterations(reportData.iterations);
+    }
+
+    // Fetch persisted state from Redis
+    try {
+      const apiUrl = getApiUrl();
+      const stateRes = await fetchWithAuth(`${apiUrl}/research/${taskId}/state`);
+      if (stateRes.ok) {
+        const state = await stateRes.json();
+        if (state.notes) setNotes(state.notes.map((n: string, i: number) => ({ iteration: i, content: n })));
+        if (state.queries) setQueries(state.queries);
+        if (state.research_topic) setResearchTopic(state.research_topic);
+        if (state.message) setStatus(state.message);
+        if (state.progress) setProgress(state.progress);
+      }
+    } catch (e) {
+      console.warn("Could not fetch persisted state, using defaults");
+    }
+
+    // Connect to SSE stream
+    const streamUrl = `${apiUrl}/research/${taskId}/stream`;
+    const es = new EventSource(streamUrl, { withCredentials: true });
+    setEventSource(es);
+
+    es.onmessage = (event) => {
+      if (event.data === '[DONE]') {
+        es.close();
+        setEventSource(null);
+        setIsRunning(false);
+        return;
+      }
+
+      try {
+        let raw = event.data;
+        if (raw.startsWith('"') && raw.endsWith('"')) raw = JSON.parse(raw);
+        const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+
+        const eventType = data.type || data.event || '';
+
+        // Handle rejoin event — merge persisted state
+        if (eventType === 'rejoin') {
+          if (data.notes) setNotes(data.notes.map((n: string, i: number) => ({ iteration: i, content: n })));
+          if (data.queries) setQueries(data.queries);
+          if (data.research_topic) setResearchTopic(data.research_topic);
+          if (data.message) setStatus(data.message);
+          if (data.progress) setProgress(data.progress);
+          return;
+        }
+
+        if (eventType === 'status') {
+          if (data.message) setStatus(data.message);
+          if (data.iteration !== undefined) {
+            setCurrentIteration(data.iteration + 1);
+            setProgress(((data.iteration + 1) / maxIterations));
+          }
+        } else if (eventType === 'done') {
+          if (data.report) setFinalReport(data.report);
+          if (data.report_id) setCurrentReportId(data.report_id);
+          setStatus('完成');
+          setProgress(1);
+          setIsRunning(false);
+          es.close();
+          setEventSource(null);
+          window.dispatchEvent(new Event('refresh-history'));
+        } else if (eventType === 'error') {
+          setError(data.message || '研究过程中发生错误');
+          setStatus('错误');
+          setIsRunning(false);
+          es.close();
+          setEventSource(null);
+        }
+      } catch (e) {
+        console.warn('Failed to parse SSE event:', e);
+      }
+    };
+
+    es.onerror = () => {
+      setError('SSE 连接错误');
+      setIsRunning(false);
+      es.close();
+      setEventSource(null);
+    };
   };
 
   const handleSave = async () => {

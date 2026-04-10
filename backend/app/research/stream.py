@@ -67,3 +67,18 @@ async def get_processing_status(task_id: str) -> bool:
     client = await get_redis()
     val = await client.get(f"research_processing_{task_id}")
     return val is not None
+
+
+async def save_research_state(task_id: str, state: dict, ttl: int = 86400):
+    """Persist full research state to Redis as JSON (24h TTL)."""
+    client = await get_redis()
+    key = f"research_state_{task_id}"
+    await client.setex(key, ttl, json.dumps(state))
+
+
+async def get_research_state(task_id: str) -> Optional[dict]:
+    """Retrieve persisted research state from Redis."""
+    client = await get_redis()
+    key = f"research_state_{task_id}"
+    val = await client.get(key)
+    return json.loads(val) if val else None

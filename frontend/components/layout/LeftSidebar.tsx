@@ -55,6 +55,8 @@ interface ResearchHistory {
   research_topic?: string;
   updated_at: string;
   level?: string;
+  status?: 'running' | 'done' | 'error';
+  task_id?: string;
   [key: string]: unknown;
 }
 
@@ -281,6 +283,15 @@ export default function LeftSidebar() {
       setIsLoadingResearch(false);
     }
   };
+
+  // Auto-refresh research history every 30s to update running status dots
+  useEffect(() => {
+    if (pathname !== '/research') return;
+    const interval = setInterval(() => {
+      fetchResearchHistory();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [pathname]);
 
   const handleSelectMorphologicalAnalysis = (id: number) => {
     // We dispatch an event to let MorphologicalTab know which analysis to load
@@ -738,6 +749,12 @@ export default function LeftSidebar() {
                             onClick={() => handleSelectResearch(report.id)}
                             className={`w-full text-left px-3 py-2.5 rounded-xl transition-all duration-200 flex items-start gap-3 hover:bg-slate-50 border border-transparent`}
                           >
+                            {/* Status dot */}
+                            <span className={`w-2 h-2 rounded-full flex-shrink-0 mt-0.5 ${
+                              report.status === 'running' ? 'bg-yellow-400 animate-pulse' :
+                              report.status === 'error' ? 'bg-red-400' :
+                              'bg-green-400'
+                            }`} />
                             <div className="mt-0.5 flex-shrink-0 text-slate-400 group-hover:text-indigo-500">
                               <Search className="w-3.5 h-3.5" />
                             </div>

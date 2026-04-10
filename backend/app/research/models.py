@@ -16,6 +16,8 @@ class ResearchReport(Base):
     queries_json = Column(Text, nullable=False, default="[]")
     level = Column(String, nullable=False, default="standard")
     iterations = Column(Integer, nullable=False, default=0)
+    status = Column(String, nullable=False, default="running")   # "running" | "done" | "error"
+    task_id = Column(String, nullable=True)                     # Celery task UUID
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

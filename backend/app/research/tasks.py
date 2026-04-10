@@ -12,10 +12,26 @@ from app.core.database import AsyncSessionLocal
 from app.research.agent import build_graph, level_defaults_for
 from app.research.models import ResearchReport
 from app.research.state import ResearchLevel
-from app.research.stream import clear_processing_flag, publish_event, set_processing_flag
+from app.research.stream import clear_processing_flag, publish_event, set_processing_flag, save_research_state
 from app.worker import celery_app
 
 logger = logging.getLogger(__name__)
+
+
+async def _update_db_status(task_id: str, status: str):
+    """Update the status field on the ResearchReport with matching task_id."""
+    from sqlalchemy import update
+    try:
+        async with AsyncSessionLocal() as db:
+            stmt = (
+                update(ResearchReport)
+                .where(ResearchReport.task_id == task_id)
+                .values(status=status)
+            )
+            await db.execute(stmt)
+            await db.commit()
+    except Exception as e:
+        logger.error(f"Failed to update research status: {e}")
 
 
 @celery_app.task(name="process_research")
@@ -34,6 +50,7 @@ def process_research(
     """
     async def _run():
         await set_processing_flag(task_id)
+        await _update_db_status(task_id, "running")
 
         # Determine parameters
         research_level = ResearchLevel(level)
@@ -45,6 +62,16 @@ def process_research(
             "type": "status",
             "event": "start",
             "message": f"Starting {level} research (max_iter={effective_iters})...",
+        })
+        await save_research_state(task_id, {
+            "status": "running",
+            "message": f"Starting {level} research (max_iter={effective_iters})...",
+            "progress": 0.0,
+            "iteration": None,
+            "research_topic": "",
+            "notes": [],
+            "queries": [],
+            "level": level,
         })
 
         # Build graph
@@ -74,11 +101,44 @@ def process_research(
             async for event in graph.astream(initial_state, config):
                 # Track the final state from the last event
                 final_state = event
+                # Persist accumulated state to Redis
+                current_topic = ""
+                current_notes = []
+                current_queries = []
+                if final_state:
+                    for node_data in final_state.values():
+                        if isinstance(node_data, dict):
+                            if node_data.get("research_topic"):
+                                current_topic = node_data["research_topic"]
+                            if node_data.get("notes"):
+                                current_notes = node_data["notes"]
+                            if node_data.get("search_queries"):
+                                current_queries = node_data["search_queries"]
+                await save_research_state(task_id, {
+                    "status": "running",
+                    "message": "Research in progress",
+                    "progress": 0.5,
+                    "iteration": None,
+                    "research_topic": current_topic,
+                    "notes": current_notes,
+                    "queries": current_queries,
+                    "level": level,
+                })
         except Exception as e:
             logger.error(f"Research failed for task {task_id}: {e}")
             await publish_event(task_id, {
                 "type": "error",
                 "message": str(e),
+            })
+            await save_research_state(task_id, {
+                "status": "error",
+                "message": str(e),
+                "progress": 0.0,
+                "iteration": None,
+                "research_topic": "",
+                "notes": [],
+                "queries": [],
+                "level": level,
             })
 
         # Extract data from final state
@@ -99,30 +159,48 @@ def process_research(
                     if node_data.get("search_queries"):
                         queries = node_data["search_queries"]
 
-        # Save to database on completion
+        # Update existing DB record on completion
+        final_status = "done" if final_report else "error"
         saved_report_id = None
-        if final_report:
-            try:
-                async with AsyncSessionLocal() as db:
-                    report = ResearchReport(
-                        user_id=user_id,
-                        query=query,
+        try:
+            async with AsyncSessionLocal() as db:
+                from sqlalchemy import update, select
+                # Update the existing record (created when task started)
+                stmt = (
+                    update(ResearchReport)
+                    .where(ResearchReport.task_id == task_id)
+                    .values(
+                        status=final_status,
                         research_topic=research_topic,
                         report=final_report,
                         notes_json=json.dumps(notes),
                         queries_json=json.dumps(queries),
-                        level=level,
-                        iterations=effective_iters,
                     )
-                    db.add(report)
-                    await db.commit()
-                    await db.refresh(report)
+                )
+                await db.execute(stmt)
+                await db.commit()
+                # Fetch the updated report ID
+                select_stmt = select(ResearchReport).where(ResearchReport.task_id == task_id)
+                result = await db.execute(select_stmt)
+                report = result.scalars().first()
+                if report:
                     saved_report_id = report.id
-                    logger.info(f"Saved research report for task {task_id}, report_id={report.id}")
-            except Exception as e:
-                logger.error(f"Failed to save research report: {e}")
+                logger.info(f"Updated research report for task {task_id}, status={final_status}")
+        except Exception as e:
+            logger.error(f"Failed to update research report: {e}")
 
         # Always run cleanup and publish done event
+        await save_research_state(task_id, {
+            "status": final_status,
+            "message": "Research complete" if final_report else "Research failed",
+            "progress": 1.0,
+            "iteration": effective_iters,
+            "research_topic": research_topic,
+            "notes": notes,
+            "queries": queries,
+            "level": level,
+        })
+        await _update_db_status(task_id, final_status)
         await clear_processing_flag(task_id)
         await publish_event(task_id, {
             "type": "[DONE]",

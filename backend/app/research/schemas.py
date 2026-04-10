@@ -55,6 +55,8 @@ class ResearchReportSchema(BaseModel):
     iterations: int
     created_at: str
     updated_at: str
+    status: str = "running"           # NEW
+    task_id: Optional[str] = None     # NEW
 
 
 class ResearchHistoryItem(BaseModel):
@@ -65,3 +67,18 @@ class ResearchHistoryItem(BaseModel):
     iterations: int
     created_at: str
     updated_at: str
+    status: str = "running"           # NEW: "running" | "done" | "error"
+    task_id: Optional[str] = None     # NEW: Celery task UUID
+
+
+class ResearchRunningState(BaseModel):
+    """Full state returned for rejoin — persisted in Redis during run."""
+    status: str
+    message: str
+    progress: float
+    iteration: Optional[int] = None
+    level: ResearchLevel
+    task_id: str
+    research_topic: str
+    notes: list[str] = []
+    queries: list[str] = []

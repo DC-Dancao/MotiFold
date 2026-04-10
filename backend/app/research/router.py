@@ -12,13 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.auth.models import User
-from app.core.database import get_db
+from app.core.database import get_db, AsyncSessionLocal
 from app.core.security import get_current_user
 from app.research.models import ResearchReport
 from app.research.schemas import (
     ResearchHistoryItem,
     ResearchResult,
     ResearchStart,
+    ResearchRunningState,
     ResearchStatus,
     SaveResearchRequest,
     ResearchReportSchema,
@@ -27,6 +28,7 @@ from app.research.state import LEVEL_DEFAULTS, ResearchLevel
 from app.research.stream import (
     get_processing_status,
     get_redis,
+    get_research_state,
     publish_event,
     set_processing_flag,
     subscribe_stream,
@@ -53,6 +55,25 @@ async def start_research(
 
     # Set processing flag BEFORE enqueueing to avoid race condition with SSE stream
     await set_processing_flag(task_id)
+
+    # Immediately create a DB record so task appears in history
+    try:
+        async with AsyncSessionLocal() as db:
+            report = ResearchReport(
+                user_id=current_user.id,
+                query=data.query,
+                level=level.value,
+                status="running",
+                task_id=task_id,
+                notes_json="[]",
+                queries_json="[]",
+                iterations=max_iters,
+            )
+            db.add(report)
+            await db.commit()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to create initial research record: {e}")
 
     # Enqueue Celery task with user_id for proper save
     from app.research.tasks import process_research
@@ -89,6 +110,12 @@ async def stream_research(
         await pubsub.subscribe(f"research_stream_{task_id}")
 
         is_processing = await get_processing_status(task_id)
+
+        # Emit persisted state first so reconnected clients see full progress
+        if is_processing:
+            redis_state = await get_research_state(task_id)
+            if redis_state:
+                yield f"data: {json.dumps({'type': 'rejoin', **redis_state})}\n\n"
 
         if not is_processing:
             # Check if already done (maybe Redis flag expired)
@@ -127,6 +154,45 @@ async def stream_research(
             await pubsub.close()
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@router.get("/{task_id}/state", response_model=ResearchRunningState)
+async def get_research_state_endpoint(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get persisted state for a running research task (for rejoin).
+    Returns full progress: notes, queries, topic, status, iteration.
+    """
+    # Try Redis first (running task)
+    redis_state = await get_research_state(task_id)
+    if redis_state:
+        return ResearchRunningState(**redis_state)
+
+    # Fall back to DB record
+    stmt = select(ResearchReport).where(
+        ResearchReport.task_id == task_id,
+        ResearchReport.user_id == current_user.id,
+    )
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(stmt)
+        report = result.scalars().first()
+
+    if not report:
+        raise HTTPException(status_code=404, detail="Research not found")
+
+    return ResearchRunningState(
+        status=report.status,
+        message="Research complete" if report.status == "done" else "Research failed",
+        progress=1.0,
+        iteration=report.iterations,
+        level=ResearchLevel(report.level),
+        task_id=task_id,
+        research_topic=report.research_topic or "",
+        notes=json.loads(report.notes_json),
+        queries=json.loads(report.queries_json),
+    )
 
 
 @router.get("/{task_id}/result", response_model=ResearchResult)
@@ -203,6 +269,8 @@ async def save_research_report(
         iterations=report.iterations,
         created_at=report.created_at.isoformat() if report.created_at else "",
         updated_at=report.updated_at.isoformat() if report.updated_at else "",
+        status=report.status,
+        task_id=report.task_id,
     )
 
 
@@ -228,6 +296,8 @@ async def get_research_history(
             iterations=r.iterations,
             created_at=r.created_at.isoformat() if r.created_at else "",
             updated_at=r.updated_at.isoformat() if r.updated_at else "",
+            status=r.status,
+            task_id=r.task_id,
         )
         for r in reports
     ]
@@ -261,6 +331,8 @@ async def get_research_report(
         iterations=report.iterations,
         created_at=report.created_at.isoformat() if report.created_at else "",
         updated_at=report.updated_at.isoformat() if report.updated_at else "",
+        status=report.status,
+        task_id=report.task_id,
     )
 
 
