@@ -134,8 +134,8 @@ export default function ResearchArea() {
     }
 
     // Fetch persisted state from Redis
+    const apiUrl = getApiUrl();
     try {
-      const apiUrl = getApiUrl();
       const stateRes = await fetchWithAuth(`${apiUrl}/research/${taskId}/state`);
       if (stateRes.ok) {
         const state = await stateRes.json();
