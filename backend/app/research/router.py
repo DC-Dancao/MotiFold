@@ -54,7 +54,7 @@ async def start_research(
     # Set processing flag BEFORE enqueueing to avoid race condition with SSE stream
     await set_processing_flag(task_id)
 
-    # Enqueue Celery task
+    # Enqueue Celery task with user_id for proper save
     from app.research.tasks import process_research
     process_research.delay(
         task_id=task_id,
@@ -62,6 +62,7 @@ async def start_research(
         level=level.value,
         max_iterations=max_iters,
         max_results=max_res,
+        user_id=current_user.id,
     )
 
     return ResearchStatus(
@@ -101,11 +102,17 @@ async def stream_research(
             async for message in pubsub.listen():
                 if message["type"] == "message":
                     data = message["data"]
-                    # Check for [DONE] (published as {"type": "[DONE]"} from tasks)
+                    # Check for [DONE] (published as {"type": "[DONE]", "report_id": ..., "report": ...} from tasks)
                     try:
                         parsed = json.loads(data)
                         if parsed.get("type") == "[DONE]":
-                            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                            # Include report_id and report in the done event
+                            done_event = {"type": "done"}
+                            if parsed.get("report_id"):
+                                done_event["report_id"] = parsed["report_id"]
+                            if parsed.get("report"):
+                                done_event["report"] = parsed["report"]
+                            yield f"data: {json.dumps(done_event)}\n\n"
                             break
                         # Emit original data for other events
                         yield f"data: {data}\n\n"

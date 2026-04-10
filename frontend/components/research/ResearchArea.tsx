@@ -297,13 +297,16 @@ export default function ResearchArea() {
               if (eventData.report) {
                 setFinalReport(eventData.report);
               }
+              if (eventData.report_id) {
+                setCurrentReportId(eventData.report_id);
+              }
               setStatus('完成');
               setProgress(1);
               setIsRunning(false);
               es.close();
               setEventSource(null);
-              // Auto-save on completion
-              setTimeout(() => handleSave(), 500);
+              // Refresh history to show new saved report
+              window.dispatchEvent(new Event('refresh-history'));
               break;
 
             case 'error':

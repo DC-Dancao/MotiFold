@@ -25,6 +25,7 @@ def process_research(
     level: str,
     max_iterations: int | None,
     max_results: int | None,
+    user_id: int | None = None,
 ):
     """
     Run the deep research agent for a given query.
@@ -80,45 +81,53 @@ def process_research(
                 "message": str(e),
             })
 
-        finally:
-            await clear_processing_flag(task_id)
-            await publish_event(task_id, {"type": "[DONE]"})
+        # Extract data from final state
+        research_topic = ""
+        final_report = ""
+        notes = []
+        queries = []
+
+        if final_state:
+            for node_data in final_state.values():
+                if isinstance(node_data, dict):
+                    if node_data.get("research_topic"):
+                        research_topic = node_data["research_topic"]
+                    if node_data.get("final_report"):
+                        final_report = node_data["final_report"]
+                    if node_data.get("notes"):
+                        notes = node_data["notes"]
+                    if node_data.get("search_queries"):
+                        queries = node_data["search_queries"]
 
         # Save to database on completion
-        if final_state:
+        saved_report_id = None
+        if final_report:
             try:
-                research_topic = ""
-                final_report = ""
-                notes = []
-                queries = []
-
-                # Extract from final state (which is a dict of node -> state)
-                for node_data in final_state.values():
-                    if isinstance(node_data, dict):
-                        if node_data.get("research_topic"):
-                            research_topic = node_data["research_topic"]
-                        if node_data.get("final_report"):
-                            final_report = node_data["final_report"]
-                        if node_data.get("notes"):
-                            notes = node_data["notes"]
-                        if node_data.get("search_queries"):
-                            queries = node_data["search_queries"]
-
-                if final_report:
-                    async with AsyncSessionLocal() as db:
-                        report = ResearchReport(
-                            query=query,
-                            research_topic=research_topic,
-                            report=final_report,
-                            notes_json=json.dumps(notes),
-                            queries_json=json.dumps(queries),
-                            level=level,
-                            iterations=effective_iters,
-                        )
-                        db.add(report)
-                        await db.commit()
-                        logger.info(f"Saved research report for task {task_id}")
+                async with AsyncSessionLocal() as db:
+                    report = ResearchReport(
+                        user_id=user_id,
+                        query=query,
+                        research_topic=research_topic,
+                        report=final_report,
+                        notes_json=json.dumps(notes),
+                        queries_json=json.dumps(queries),
+                        level=level,
+                        iterations=effective_iters,
+                    )
+                    db.add(report)
+                    await db.commit()
+                    await db.refresh(report)
+                    saved_report_id = report.id
+                    logger.info(f"Saved research report for task {task_id}, report_id={report.id}")
             except Exception as e:
                 logger.error(f"Failed to save research report: {e}")
+
+        # Always run cleanup and publish done event
+        await clear_processing_flag(task_id)
+        await publish_event(task_id, {
+            "type": "[DONE]",
+            "report_id": saved_report_id,
+            "report": final_report,
+        })
 
     asyncio.run(_run())
