@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Search, Loader2, FileText, Trash2, RotateCcw, MoreHorizontal } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -26,16 +26,6 @@ interface SavedReport {
   updated_at: string;
   status?: 'running' | 'done' | 'error';
   task_id?: string;
-}
-
-interface HistoryItem {
-  id: number;
-  query: string;
-  research_topic: string;
-  level: ResearchLevel;
-  iterations: number;
-  created_at: string;
-  updated_at: string;
 }
 
 const LEVEL_INFO = {
@@ -94,6 +84,15 @@ export default function ResearchArea() {
       window.removeEventListener('new-research', handleNewResearch);
     };
   }, [currentReportId]);
+
+  // Cleanup EventSource on unmount
+  useEffect(() => {
+    return () => {
+      if (eventSource) {
+        eventSource.close();
+      }
+    };
+  }, [eventSource]);
 
   const loadReport = async (id: number) => {
     try {
@@ -238,6 +237,10 @@ export default function ResearchArea() {
   };
 
   const handleResetToNew = () => {
+    if (eventSource) {
+      eventSource.close();
+      setEventSource(null);
+    }
     setCurrentReportId(null);
     setQueryInput('');
     setResearchTopic('');
@@ -612,7 +615,7 @@ export default function ResearchArea() {
           )}
 
           {/* Running: show notes and queries in real-time */}
-          {(isRunning || notes.length > 0) && notes.length > 0 && (
+          {(isRunning || notes.length > 0) && (
             <div className="max-w-3xl mx-auto">
               <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
                 <h4 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
