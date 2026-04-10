@@ -18,22 +18,6 @@ from app.worker import celery_app
 logger = logging.getLogger(__name__)
 
 
-async def _update_db_status(task_id: str, status: str):
-    """Update the status field on the ResearchReport with matching task_id."""
-    from sqlalchemy import update
-    try:
-        async with AsyncSessionLocal() as db:
-            stmt = (
-                update(ResearchReport)
-                .where(ResearchReport.task_id == task_id)
-                .values(status=status)
-            )
-            await db.execute(stmt)
-            await db.commit()
-    except Exception as e:
-        logger.error(f"Failed to update research status: {e}")
-
-
 @celery_app.task(name="process_research")
 def process_research(
     task_id: str,
@@ -50,7 +34,6 @@ def process_research(
     """
     async def _run():
         await set_processing_flag(task_id)
-        await _update_db_status(task_id, "running")
 
         # Determine parameters
         research_level = ResearchLevel(level)
@@ -200,7 +183,6 @@ def process_research(
             "queries": queries,
             "level": level,
         })
-        await _update_db_status(task_id, final_status)
         await clear_processing_flag(task_id)
         await publish_event(task_id, {
             "type": "[DONE]",
