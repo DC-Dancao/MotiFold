@@ -21,7 +21,6 @@ from app.research.schemas import (
     ResearchStart,
     ResearchRunningState,
     ResearchStatus,
-    SaveResearchRequest,
     ResearchReportSchema,
 )
 from app.research.state import LEVEL_DEFAULTS, ResearchLevel
@@ -212,66 +211,6 @@ async def get_result(
         return ResearchResult(**data)
 
     raise HTTPException(status_code=404, detail="Research result not found or still in progress")
-
-
-@router.post("/save", response_model=ResearchReportSchema)
-async def save_research_report(
-    req: SaveResearchRequest,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Save or update a research report."""
-    notes_json = json.dumps(req.notes)
-    queries_json = json.dumps(req.queries)
-
-    if req.id:
-        stmt = select(ResearchReport).where(
-            ResearchReport.id == req.id,
-            ResearchReport.user_id == current_user.id,
-        )
-        result = await db.execute(stmt)
-        report = result.scalars().first()
-
-        if not report:
-            raise HTTPException(status_code=404, detail="Research report not found")
-
-        report.query = req.query
-        report.research_topic = req.research_topic
-        report.report = req.report
-        report.notes_json = notes_json
-        report.queries_json = queries_json
-        report.level = req.level.value
-        report.iterations = req.iterations
-    else:
-        report = ResearchReport(
-            user_id=current_user.id,
-            query=req.query,
-            research_topic=req.research_topic,
-            report=req.report,
-            notes_json=notes_json,
-            queries_json=queries_json,
-            level=req.level.value,
-            iterations=req.iterations,
-        )
-        db.add(report)
-
-    await db.commit()
-    await db.refresh(report)
-
-    return ResearchReportSchema(
-        id=report.id,
-        query=report.query,
-        research_topic=report.research_topic or "",
-        report=report.report or "",
-        notes=json.loads(report.notes_json),
-        queries=json.loads(report.queries_json),
-        level=ResearchLevel(report.level),
-        iterations=report.iterations,
-        created_at=report.created_at.isoformat() if report.created_at else "",
-        updated_at=report.updated_at.isoformat() if report.updated_at else "",
-        status=report.status,
-        task_id=report.task_id,
-    )
 
 
 @router.get("/history", response_model=List[ResearchHistoryItem])

@@ -33,17 +33,6 @@ class ResearchResult(BaseModel):
     level: ResearchLevel
 
 
-class SaveResearchRequest(BaseModel):
-    id: Optional[int] = None
-    query: str
-    research_topic: str
-    report: str
-    notes: list[str]
-    queries: list[str]
-    level: ResearchLevel
-    iterations: int
-
-
 class ResearchReportSchema(BaseModel):
     id: int
     query: str
