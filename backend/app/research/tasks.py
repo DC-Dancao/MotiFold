@@ -3,11 +3,14 @@ Celery tasks for Deep Research.
 """
 
 import asyncio
+import json
 import logging
 
 from langchain_core.messages import HumanMessage
 
+from app.core.database import AsyncSessionLocal
 from app.research.agent import build_graph, level_defaults_for
+from app.research.models import ResearchReport
 from app.research.state import ResearchLevel
 from app.research.stream import clear_processing_flag, publish_event, set_processing_flag
 from app.worker import celery_app
@@ -26,6 +29,7 @@ def process_research(
     """
     Run the deep research agent for a given query.
     Publishes progress events to Redis pub/sub.
+    Saves result to database on completion.
     """
     async def _run():
         await set_processing_flag(task_id)
@@ -64,13 +68,11 @@ def process_research(
             "configurable": {"thread_id": f"research_{task_id}", "task_id": task_id},
         }
 
+        final_state = None
         try:
             async for event in graph.astream(initial_state, config):
-                # Each event from astream contains node updates
-                # Nodes emit their own SSE events via publish_event()
-                # so we don't need to do anything with the event here
-                pass
-
+                # Track the final state from the last event
+                final_state = event
         except Exception as e:
             logger.error(f"Research failed for task {task_id}: {e}")
             await publish_event(task_id, {
@@ -81,5 +83,42 @@ def process_research(
         finally:
             await clear_processing_flag(task_id)
             await publish_event(task_id, {"type": "[DONE]"})
+
+        # Save to database on completion
+        if final_state:
+            try:
+                research_topic = ""
+                final_report = ""
+                notes = []
+                queries = []
+
+                # Extract from final state (which is a dict of node -> state)
+                for node_data in final_state.values():
+                    if isinstance(node_data, dict):
+                        if node_data.get("research_topic"):
+                            research_topic = node_data["research_topic"]
+                        if node_data.get("final_report"):
+                            final_report = node_data["final_report"]
+                        if node_data.get("notes"):
+                            notes = node_data["notes"]
+                        if node_data.get("search_queries"):
+                            queries = node_data["search_queries"]
+
+                if final_report:
+                    async with AsyncSessionLocal() as db:
+                        report = ResearchReport(
+                            query=query,
+                            research_topic=research_topic,
+                            report=final_report,
+                            notes_json=json.dumps(notes),
+                            queries_json=json.dumps(queries),
+                            level=level,
+                            iterations=effective_iters,
+                        )
+                        db.add(report)
+                        await db.commit()
+                        logger.info(f"Saved research report for task {task_id}")
+            except Exception as e:
+                logger.error(f"Failed to save research report: {e}")
 
     asyncio.run(_run())
