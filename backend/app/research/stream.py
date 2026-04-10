@@ -5,6 +5,7 @@ Redis SSE streaming helpers for Deep Research.
 import asyncio
 import json
 import weakref
+from typing import Optional
 
 import redis.asyncio as aioredis
 
