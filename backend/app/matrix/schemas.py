@@ -1,4 +1,4 @@
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -87,18 +87,15 @@ class GenerateMorphologicalLLMResponse(BaseModel):
 class EvaluateConsistencyRequest(BaseModel):
     analysis_id: int
 
-class EvaluateConsistencyReasons(BaseModel):
-    red: str
-    yellow: str
-
-class EvaluateConsistencyResults(BaseModel):
-    red: List[List[int]]
-    yellow: List[List[int]]
-    reasons: EvaluateConsistencyReasons
+class EvaluationResult(BaseModel):
+    red: List[List[int]] = []
+    yellow: List[List[int]] = []
+    reasons: Dict[str, Dict[str, str]] = {}  # "red"/"yellow" -> {[s1,s2]: reason}
+    types: Dict[str, Literal['L', 'E', 'N']] = {}  # {[s1,s2]: type}
 
 class PairEvaluateConsistencyResponse(BaseModel):
-    pair: List[int]
-    results: EvaluateConsistencyResults
+    pair: List[int]  # [param1_idx, param2_idx]
+    results: EvaluationResult
 
 class BatchEvaluateConsistencyResponse(BaseModel):
     evaluations: List[PairEvaluateConsistencyResponse]
@@ -184,3 +181,64 @@ def normalize_morphological_response(raw_response: Any) -> GenerateMorphological
         raise ValueError(f"Too few usable parameters (got {len(normalized_parameters)}, need at least 2)")
 
     return GenerateMorphologicalLLMResponse(parameters=normalized_parameters)
+
+
+# --- Enhanced Matrix & Clustering Schemas ---
+
+class MatrixCellSchema(BaseModel):
+    status: Literal['green', 'yellow', 'red']
+    contradiction_type: Optional[Literal['L', 'E', 'N']] = None
+    reason: Optional[str] = None
+
+class EnhancedMatrixData(Dict[str, Dict[str, MatrixCellSchema]]):
+    pass
+
+class OrthogonalityWarning(BaseModel):
+    param1_idx: int
+    param2_idx: int
+    param1_name: str
+    param2_name: str
+    overlap_description: str
+
+class OrthogonalityCheckResponse(BaseModel):
+    warnings: List[OrthogonalityWarning]
+    all_orthogonal: bool
+
+class ClusterRequest(BaseModel):
+    analysis_id: int
+    max_clusters: int = Field(default=5, ge=2, le=10)
+    # max_solutions_per_cluster removed - was never used
+
+class ClusterSolution(BaseModel):
+    name: str
+    description: Optional[str] = None
+    solution_indices: List[int]
+
+class ClusterResponse(BaseModel):
+    clusters: List[ClusterSolution]
+
+class AHPSuggestRequest(BaseModel):
+    analysis_id: int
+    num_criteria: int = Field(default=4, ge=3, le=6)
+
+class AHPCriteriaResponse(BaseModel):
+    criteria: List[Dict[str, float]]
+
+class AHPSuggestResponse(BaseModel):
+    criteria: List[Dict[str, float]]
+
+class ScoreRequest(BaseModel):
+    analysis_id: int
+    cluster_id: Optional[str] = None
+    weights: List[Dict[str, float]]
+
+class ScoredSolution(BaseModel):
+    rank: int
+    solution_index: int
+    solution: List[str]
+    score: float
+    ratings: Dict[str, int]
+    summary: str
+
+class ScoreResponse(BaseModel):
+    ranked_solutions: List[ScoredSolution]

@@ -3,7 +3,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import update
-from typing import List
+from typing import List, Dict
 import json
 
 from app.llm.factory import get_llm
@@ -32,6 +32,13 @@ from app.matrix.schemas import (
     EvaluateConsistencyResponse,
     SaveMorphologicalRequest,
     MorphologicalAnalysisSchema,
+    OrthogonalityCheckResponse,
+    ClusterRequest,
+    ClusterResponse,
+    AHPSuggestRequest,
+    AHPSuggestResponse,
+    ScoreRequest,
+    ScoreResponse,
 )
 from app.matrix.stream import (
     get_redis,
@@ -484,3 +491,173 @@ async def delete_keyword(
     await db.delete(kw)
     await db.commit()
     return {"status": "success"}
+
+
+@router.post("/orthogonality-check")
+async def check_orthogonality(
+    request: Dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Check parameter orthogonality."""
+    from .service import check_orthogonality
+
+    # Get analysis from request or return error
+    analysis_id = request.get("analysis_id")
+    if not analysis_id:
+        raise HTTPException(status_code=400, detail="analysis_id is required")
+
+    stmt = select(MorphologicalAnalysis).where(
+        MorphologicalAnalysis.id == analysis_id,
+        MorphologicalAnalysis.user_id == current_user.id
+    )
+    result = await db.execute(stmt)
+    analysis = result.scalars().first()
+
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+
+    params = json.loads(analysis.parameters_json)
+    result = await check_orthogonality(params)
+    return result
+
+
+@router.post("/cluster")
+async def cluster_solutions(
+    request: ClusterRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Auto-cluster valid solutions."""
+    from .service import enumerate_solutions, cluster_solutions
+    from .models import SolutionCluster
+
+    stmt = select(MorphologicalAnalysis).where(
+        MorphologicalAnalysis.id == request.analysis_id,
+        MorphologicalAnalysis.user_id == current_user.id
+    )
+    result = await db.execute(stmt)
+    analysis = result.scalars().first()
+
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+
+    params = json.loads(analysis.parameters_json)
+    matrix = json.loads(analysis.matrix_json)
+
+    solutions, _ = enumerate_solutions(params, matrix)
+    clusters = await cluster_solutions(params, solutions, request.max_clusters)
+
+    # Save clusters to DB
+    for cluster in clusters:
+        cluster_obj = SolutionCluster(
+            analysis_id=analysis.id,
+            cluster_id=f"cluster_{cluster['name'].replace(' ', '_').lower()}",
+            name=cluster["name"],
+            description=cluster.get("description"),
+            solution_indices=cluster["solution_indices"]
+        )
+        db.add(cluster_obj)
+
+    await db.commit()
+
+    return {"clusters": clusters, "total_solutions": len(solutions)}
+
+
+@router.post("/ahp-suggest")
+async def suggest_ahp_weights(
+    request: AHPSuggestRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get suggested AHP weights."""
+    from .service import suggest_ahp_weights
+
+    stmt = select(MorphologicalAnalysis).where(
+        MorphologicalAnalysis.id == request.analysis_id,
+        MorphologicalAnalysis.user_id == current_user.id
+    )
+    result = await db.execute(stmt)
+    analysis = result.scalars().first()
+
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+
+    params = json.loads(analysis.parameters_json)
+
+    # Get existing clusters
+    clusters = []
+    for sc in analysis.solution_clusters:
+        clusters.append({
+            "name": sc.name,
+            "description": sc.description,
+            "solution_indices": sc.solution_indices
+        })
+
+    weights = await suggest_ahp_weights(params, clusters)
+    return {"criteria": weights}
+
+
+@router.post("/score")
+async def score_solutions(
+    request: ScoreRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Score and rank solutions."""
+    from .service import enumerate_solutions, score_solutions
+
+    stmt = select(MorphologicalAnalysis).where(
+        MorphologicalAnalysis.id == request.analysis_id,
+        MorphologicalAnalysis.user_id == current_user.id
+    )
+    result = await db.execute(stmt)
+    analysis = result.scalars().first()
+
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+
+    params = json.loads(analysis.parameters_json)
+    matrix = json.loads(analysis.matrix_json)
+
+    solutions, _ = enumerate_solutions(params, matrix)
+
+    # Filter by cluster if specified
+    if request.cluster_id:
+        cluster = next((c for c in analysis.solution_clusters if c.cluster_id == request.cluster_id), None)
+        if cluster:
+            solutions = [solutions[i] for i in cluster.solution_indices if i < len(solutions)]
+
+    ranked = await score_solutions(params, solutions, request.weights)
+    return {"ranked_solutions": ranked}
+
+
+@router.get("/solutions/{analysis_id}")
+async def get_solutions(
+    analysis_id: int,
+    max_yellows: int = 2,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get enumerated solutions for an analysis."""
+    from .service import enumerate_solutions
+
+    stmt = select(MorphologicalAnalysis).where(
+        MorphologicalAnalysis.id == analysis_id,
+        MorphologicalAnalysis.user_id == current_user.id
+    )
+    result = await db.execute(stmt)
+    analysis = result.scalars().first()
+
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+
+    params = json.loads(analysis.parameters_json)
+    matrix = json.loads(analysis.matrix_json)
+
+    solutions, total_iterations = enumerate_solutions(params, matrix, max_yellows)
+    return {
+        "solutions": solutions,
+        "total": len(solutions),
+        "iterations": total_iterations
+    }

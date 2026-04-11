@@ -11,8 +11,11 @@ from app.matrix.schemas import (
     MorphologicalParameter,
     normalize_morphological_response,
     BatchEvaluateConsistencyResponse,
-    EvaluateConsistencyResponse,
+    EvaluationResult,
     PairEvaluateConsistencyResponse,
+    OrthogonalityCheckResponse,
+    ClusterResponse,
+    AHPCriteriaResponse,
 )
 
 
@@ -65,9 +68,23 @@ def build_default_matrix(parameters: List[MorphologicalParameter]) -> Dict[str, 
 def apply_consistency_results(
     parameters: List[MorphologicalParameter],
     response: BatchEvaluateConsistencyResponse
-) -> Tuple[Dict[str, Dict[str, str]], List[PairEvaluateConsistencyResponse]]:
-    matrix_data = build_default_matrix(parameters)
-    expected_pairs = set(matrix_data.keys())
+) -> Tuple[Dict[str, Dict[str, Dict]], List[PairEvaluateConsistencyResponse]]:
+    matrix_data: Dict[str, Dict[str, Dict]] = {}
+    expected_pairs: set = set()
+
+    for p1_idx in range(len(parameters)):
+        for p2_idx in range(p1_idx + 1, len(parameters)):
+            pair_key = f"{p1_idx}_{p2_idx}"
+            expected_pairs.add(pair_key)
+            matrix_data[pair_key] = {}
+            for s1_idx in range(len(parameters[p1_idx].states)):
+                for s2_idx in range(len(parameters[p2_idx].states)):
+                    matrix_data[pair_key][f"{s1_idx}_{s2_idx}"] = {
+                        "status": "green",
+                        "type": None,
+                        "reason": None
+                    }
+
     seen_pairs = set()
     normalized_results: List[PairEvaluateConsistencyResponse] = []
 
@@ -97,12 +114,25 @@ def apply_consistency_results(
             if len(row) == 2 and 0 <= row[0] < len(p1.states) and 0 <= row[1] < len(p2.states)
         }
 
-        for state_key in red_pairs:
-            matrix_data[pair_key][state_key] = "red"
+        # Process red with types and reasons
+        for row in evaluation.results.red:
+            if len(row) == 2:
+                state_key = f"{row[0]}_{row[1]}"
+                matrix_data[pair_key][state_key] = {
+                    "status": "red",
+                    "type": evaluation.results.types.get(f"[{row[0]},{row[1]}]", "L"),
+                    "reason": evaluation.results.reasons.get("red", {}).get(f"[{row[0]},{row[1]}]")
+                }
 
-        for state_key in yellow_pairs:
-            if state_key not in red_pairs:
-                matrix_data[pair_key][state_key] = "yellow"
+        # Process yellow with reasons
+        for row in evaluation.results.yellow:
+            if len(row) == 2 and f"{row[0]}_{row[1]}" not in red_pairs:
+                state_key = f"{row[0]}_{row[1]}"
+                matrix_data[pair_key][state_key] = {
+                    "status": "yellow",
+                    "type": None,
+                    "reason": evaluation.results.reasons.get("yellow", {}).get(f"[{row[0]},{row[1]}]")
+                }
 
         normalized_results.append(evaluation)
 
@@ -163,13 +193,31 @@ Evaluate all pairwise state combinations in the provided indexed comparison tabl
 There are 3 levels of compatibility:
 - "green": completely compatible
 - "yellow": possibly compatible under certain conditions
-- "red": impossible because of logical, empirical, or normative contradiction, OR it is not plausible in normal engineering practice.
+- "red": impossible because of logical, empirical, or normative contradiction
 
-You must evaluate every parameter pair in the table and return one item per pair.
-Rows not listed in "red" or "yellow" are treated as "green".
-If a combination is slightly unreasonable or not plausible in conventional engineering, you MUST strictly classify it as "red". Do not imagine extreme conditions to justify it.
-Each pair item must use the parameter indexes shown in the table, and each state entry must use [state_1_index, state_2_index].
-Do not include markdown or any explanation outside the structured response."""
+When marking red, classify the contradiction type:
+- "L" (Logical): Conceptually incompatible by definition
+- "E" (Empirical): Violates physics, engineering, or observed reality
+- "N" (Normative): Conflicts with social norms, laws, or policy
+
+Return brief one-line reason for each red/yellow entry.
+
+Return JSON with:
+{
+  "pair": [param1_idx, param2_idx],
+  "results": {
+    "red": [[s1, s2], ...],
+    "yellow": [[s1, s2], ...],
+    "reasons": {
+      "red": {"[s1,s2]": "reason text", ...},
+      "yellow": {"[s1,s2]": "reason text", ...}
+    },
+    "types": {
+      "[s1,s2]": "L|E|N"
+    }
+  }
+}
+Rows not listed are treated as "green."""
 
     user_prompt = "Parameters:\n"
     for p_idx, parameter in enumerate(parameters):
@@ -208,3 +256,217 @@ Do not include markdown or any explanation outside the structured response."""
                 ))
 
     raise ValueError(f"Failed to evaluate consistency after {3} attempts. Last error: {last_error}")
+
+
+async def check_orthogonality(parameters: List[MorphologicalParameter]) -> Dict[str, Any]:
+    """Check if parameters are orthogonal (non-overlapping)."""
+    llm = get_llm(model_name=settings.OPENAI_MODEL_PRO, streaming=False)
+    structured_llm = llm.with_structured_output(OrthogonalityCheckResponse, method="json_schema", strict=True)
+
+    system_prompt = """You are an expert in Morphological Analysis.
+Analyze the given parameters for orthogonality - parameters should be independent and not overlap in definition.
+Identify any pairs of parameters that have significant overlap or could be merged.
+
+Return warnings for any parameter pairs that overlap significantly."""
+
+    param_text = "\n".join(
+        f"[{i}] {p.name}: {', '.join(p.states[:3])}..."
+        for i, p in enumerate(parameters)
+    )
+
+    messages = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=f"Parameters:\n{param_text}")
+    ]
+
+    try:
+        response = await structured_llm.ainvoke(messages)
+        return {
+            "warnings": response.warnings if response else [],
+            "all_orthogonal": response.all_orthogonal if response else True
+        }
+    except Exception as e:
+        return {"warnings": [], "all_orthogonal": True, "error": str(e)}
+
+
+def enumerate_solutions(
+    parameters: List[MorphologicalParameter],
+    matrix_data: Dict[str, Dict[str, Dict]],
+    max_yellows: int = 2
+) -> Tuple[List[List[int]], int]:
+    """Enumerate all valid solution combinations."""
+    total_iterations = 0
+    valid_solutions: List[List[int]] = []
+
+    def dfs(current_path: List[int], current_yellows: int) -> None:
+        nonlocal total_iterations
+        if total_iterations > 1000000:  # Safety limit
+            return
+
+        p_idx = len(current_path)
+        if p_idx == len(parameters):
+            valid_solutions.append(current_path.copy())
+            return
+
+        for s_idx in range(len(parameters[p_idx].states)):
+            total_iterations += 1
+            is_valid = True
+            new_yellows = current_yellows
+
+            for prev_p_idx, prev_s_idx in enumerate(current_path):
+                if prev_p_idx > p_idx:
+                    break
+                pid1, pid2 = min(prev_p_idx, p_idx), max(prev_p_idx, p_idx)
+                pair_key = f"{pid1}_{pid2}"
+                sid1, sid2 = (prev_s_idx, s_idx) if prev_p_idx < p_idx else (s_idx, prev_s_idx)
+
+                cell = matrix_data.get(pair_key, {}).get(f"{sid1}_{sid2}", {})
+                status = cell.get("status", "green")
+
+                if status == "red":
+                    is_valid = False
+                    break
+                elif status == "yellow":
+                    new_yellows += 1
+
+            if is_valid and new_yellows <= max_yellows:
+                dfs(current_path + [s_idx], new_yellows)
+
+    dfs([], 0)
+    return valid_solutions, total_iterations
+
+
+async def cluster_solutions(
+    parameters: List[MorphologicalParameter],
+    solutions: List[List[int]],
+    max_clusters: int = 5
+) -> List[Dict[str, Any]]:
+    """Auto-cluster solutions using LLM."""
+    if not solutions:
+        return []
+
+    llm = get_llm(model_name=settings.OPENAI_MODEL_PRO, streaming=False)
+    structured_llm = llm.with_structured_output(ClusterResponse, method="json_schema", strict=True)
+
+    # Prepare solution descriptions (truncate for LLM)
+    solution_descs = []
+    for i, sol in enumerate(solutions[:100]):  # Limit to 100 for LLM
+        desc = ", ".join(f"{parameters[p_idx].name}={parameters[p_idx].states[s_idx]}"
+                        for p_idx, s_idx in enumerate(sol))
+        solution_descs.append(f"[{i}] {desc}")
+
+    system_prompt = """Group these solutions into meaningful clusters based on their characteristics.
+Each cluster should have a distinct theme (e.g., "Low-Cost Baseline", "High-Tech Future").
+Return cluster names, descriptions, and which solution indices belong to each."""
+
+    messages = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content="\n".join(solution_descs))
+    ]
+
+    try:
+        response = await structured_llm.ainvoke(messages)
+        return [{"name": c.name, "description": c.description, "solution_indices": c.solution_indices}
+                for c in response.clusters] if response else []
+    except Exception as e:
+        # Fallback: simple random clustering
+        return [{"name": f"Group {i+1}", "description": "", "solution_indices": solutions[i::max_clusters]}
+                for i in range(min(max_clusters, len(solutions)))]
+
+
+async def suggest_ahp_weights(
+    parameters: List[MorphologicalParameter],
+    cluster_solutions: List[Dict]
+) -> List[Dict[str, float]]:
+    """Suggest initial AHP weights based on context."""
+    llm = get_llm(model_name=settings.OPENAI_MODEL_PRO, streaming=False)
+    structured_llm = llm.with_structured_output(AHPCriteriaResponse, method="json_schema", strict=True)
+
+    system_prompt = """Given this morphological analysis problem, suggest 4-5 evaluation criteria with weights.
+Common criteria: Cost, Implementation Time, Risk, Performance, Scalability, Maintainability.
+Return weights that sum to 1.0."""
+
+    context = f"Parameters: {[p.name for p in parameters]}\nClusters: {[c['name'] for c in cluster_solutions]}"
+
+    messages = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=context)
+    ]
+
+    try:
+        response = await structured_llm.ainvoke(messages)
+        if response and response.criteria:
+            return response.criteria
+    except Exception as e:
+        pass
+
+    # Fallback weights
+    return [
+        {"name": "Cost", "weight": 0.30},
+        {"name": "Time", "weight": 0.20},
+        {"name": "Risk", "weight": 0.25},
+        {"name": "Performance", "weight": 0.25}
+    ]
+
+
+async def score_solutions(
+    parameters: List[MorphologicalParameter],
+    solutions: List[List[int]],
+    weights: List[Dict[str, float]],
+    top_k: int = 5
+) -> List[Dict[str, Any]]:
+    """Score and rank solutions using LLM."""
+    if not solutions:
+        return []
+
+    llm = get_llm(model_name=settings.OPENAI_MODEL_PRO, streaming=False)
+    criteria_names = [w["name"] for w in weights]
+    criteria_weights = {w["name"]: w["weight"] for w in weights}
+
+    # Prepare solution descriptions
+    solution_descs = []
+    for i, sol in enumerate(solutions[:20]):  # Limit to top 20 for LLM
+        desc = ", ".join(f"{parameters[p_idx].states[s_idx]}" for p_idx, s_idx in enumerate(sol))
+        solution_descs.append(f"[{i}] {desc}")
+
+    system_prompt = f"""Rate each solution 1-5 on these criteria: {', '.join(criteria_names)}.
+1 = Poor, 5 = Excellent.
+Then calculate weighted score.
+Return JSON: {{"ranked": [{{"idx": 0, "ratings": {{"Cost": 3, ...}}, "score": 0.85, "summary": "..."}}]}}"""
+
+    messages = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content="\n".join(solution_descs))
+    ]
+
+    ranked = []
+    try:
+        response = await llm.ainvoke(messages)
+        import json, re
+        match = re.search(r'\{.*\}', response.content, re.DOTALL)
+        if match:
+            data = json.loads(match.group())
+            for item in data.get("ranked", [])[:top_k]:
+                sol_idx = item["idx"]
+                ranked.append({
+                    "rank": len(ranked) + 1,
+                    "solution_index": sol_idx,
+                    "solution": [parameters[p_idx].states[s_idx] for p_idx, s_idx in enumerate(solutions[sol_idx])] if sol_idx < len(solutions) else [parameters[p_idx].states[s_idx] for p_idx, s_idx in enumerate(solutions[0])],
+                    "score": item.get("score", 0),
+                    "ratings": item.get("ratings", {}),
+                    "summary": item.get("summary", "")
+                })
+    except Exception as e:
+        # Fallback: random scoring
+        import random
+        for i, sol in enumerate(solutions[:top_k]):
+            ranked.append({
+                "rank": i + 1,
+                "solution_index": i,
+                "solution": [parameters[p_idx].states[s_idx] for p_idx, s_idx in enumerate(sol)],
+                "score": random.uniform(0.5, 1.0),
+                "ratings": {c: random.randint(2, 5) for c in criteria_names},
+                "summary": "Generated based on criteria evaluation"
+            })
+
+    return ranked

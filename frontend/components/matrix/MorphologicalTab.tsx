@@ -2,11 +2,12 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Sparkles, Loader2, RefreshCw, Save, Trash2, FolderOpen, Maximize2, Minimize2 } from 'lucide-react';
+import { Sparkles, Loader2, RefreshCw, Save, Trash2, FolderOpen, Maximize2, Minimize2, Edit2, AlertTriangle } from 'lucide-react';
 import ReactECharts from 'echarts-for-react';
 import { fetchWithAuth, getApiUrl } from '../../app/lib/api';
+import Tab4Convergence from './Tab4Convergence';
 
-const subTabs = ['定义问题', '交叉一致性评估', '解空间可视化'];
+const subTabs = ['定义问题', '交叉一致性评估', '解空间可视化', '方案收敛'];
 
 interface Parameter {
   name: string;
@@ -15,7 +16,11 @@ interface Parameter {
 
 interface MatrixData {
   [pairId: string]: {
-    [statePair: string]: 'green' | 'yellow' | 'red';
+    [statePair: string]: {
+      status: 'green' | 'yellow' | 'red';
+      type?: 'L' | 'E' | 'N';
+      reason?: string;
+    };
   };
 }
 
@@ -27,6 +32,35 @@ interface SavedAnalysis {
   status: string;
   created_at: string;
   updated_at: string;
+}
+
+interface OrthogonalityWarning {
+  param1_idx: number;
+  param2_idx: number;
+  param1_name: string;
+  param2_name: string;
+  overlap_description: string;
+}
+
+interface Cluster {
+  id: string;
+  name: string;
+  description: string;
+  solution_indices: number[];
+}
+
+interface Criteria {
+  name: string;
+  weight: number;
+}
+
+interface RankedSolution {
+  rank: number;
+  solution_index: number;
+  solution: number[];
+  score: number;
+  ratings: Record<string, number>;
+  summary: string;
 }
 
 export default function MorphologicalTab() {
@@ -52,6 +86,10 @@ export default function MorphologicalTab() {
   const [matrixEventSource, setMatrixEventSource] = useState<EventSource | null>(null);
   const [sseRetryCount, setSseRetryCount] = useState(0);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const [editingCell, setEditingCell] = useState<{pIdx: number, sIdx: number} | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [orthogonalityWarnings, setOrthogonalityWarnings] = useState<OrthogonalityWarning[]>([]);
 
   const maxStatesCount = useMemo(() => {
     return Math.max(...parameters.map(p => p.states.length), 0);
@@ -93,6 +131,31 @@ export default function MorphologicalTab() {
     }
     return pairs;
   }, [parameters]);
+
+  const startEditing = (pIdx: number, sIdx: number, currentValue: string) => {
+    setEditingCell({ pIdx, sIdx });
+    setEditValue(currentValue);
+  };
+
+  const saveEdit = () => {
+    if (!editingCell) return;
+    const { pIdx, sIdx } = editingCell;
+    setParameters(prev => prev.map((p, pi) => {
+      if (pi !== pIdx) return p;
+      return {
+        ...p,
+        states: p.states.map((s, si) => si === sIdx ? editValue : s)
+      };
+    }));
+    setEditingCell(null);
+    // Auto-save
+    setTimeout(() => handleSave(), 500);
+  };
+
+  const cancelEdit = () => {
+    setEditingCell(null);
+    setEditValue("");
+  };
 
   const handleExtractQuestion = async () => {
     if (!problemDescription.trim()) return;
@@ -187,7 +250,8 @@ export default function MorphologicalTab() {
 
   const getMatrixValue = (pairId: string, s1Idx: number, s2Idx: number) => {
     if(!matrixData[pairId]) return 'unknown';
-    return matrixData[pairId][`${s1Idx}_${s2Idx}`] || 'unknown';
+    const cell = matrixData[pairId][`${s1Idx}_${s2Idx}`];
+    return cell?.status || 'unknown';
   };
 
   const toggleMatrixValue = (pairId: string, s1Idx: number, s2Idx: number) => {
@@ -195,12 +259,12 @@ export default function MorphologicalTab() {
     let next: 'green' | 'yellow' | 'red' = 'green';
     if(current === 'green') next = 'yellow';
     else if(current === 'yellow') next = 'red';
-    
+
     setMatrixData(prev => ({
       ...prev,
       [pairId]: {
         ...(prev[pairId] || {}),
-        [`${s1Idx}_${s2Idx}`]: next
+        [`${s1Idx}_${s2Idx}`]: { status: next }
       }
     }));
   };
@@ -413,6 +477,22 @@ export default function MorphologicalTab() {
       return () => clearTimeout(timer);
     }
   }, [matrixData, parameters, focusQuestion]);
+
+  // Orthogonality check effect
+  useEffect(() => {
+    if (parameters.length > 0 && currentAnalysisId) {
+      fetchWithAuth(`${getApiUrl()}/matrix/morphological/orthogonality-check`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ analysis_id: currentAnalysisId })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.warnings) setOrthogonalityWarnings(data.warnings);
+      })
+      .catch(console.error);
+    }
+  }, [parameters.length, currentAnalysisId]);
 
   // SSE connection for real-time matrix updates
   useEffect(() => {
@@ -943,9 +1023,33 @@ export default function MorphologicalTab() {
                       {parameters.map((p, pIdx) => (
                         <td key={pIdx} className="border border-slate-200 p-3 align-top">
                           {p.states[rowIdx] && (
-                            <div className="bg-indigo-50 text-indigo-800 px-3 py-2 rounded-lg border border-indigo-100/50 shadow-sm font-medium">
-                              {p.states[rowIdx]}
-                            </div>
+                            editingCell?.pIdx === pIdx && editingCell?.sIdx === rowIdx ? (
+                              <div className="flex gap-1">
+                                <input
+                                  type="text"
+                                  value={editValue}
+                                  onChange={e => setEditValue(e.target.value)}
+                                  onBlur={saveEdit}
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter') saveEdit();
+                                    if (e.key === 'Escape') cancelEdit();
+                                  }}
+                                  className="border border-indigo-300 rounded px-2 py-1 text-sm w-full"
+                                  maxLength={50}
+                                  autoFocus
+                                />
+                              </div>
+                            ) : (
+                              <div
+                                className="bg-indigo-50 text-indigo-800 px-3 py-2 rounded-lg border border-indigo-100/50 shadow-sm font-medium flex items-center justify-between group cursor-pointer"
+                                onClick={() => startEditing(pIdx, rowIdx, p.states[rowIdx])}
+                              >
+                                <span className="flex-1">{p.states[rowIdx]}</span>
+                                <button className="opacity-0 group-hover:opacity-100 text-indigo-400 hover:text-indigo-600 ml-2">
+                                  <Edit2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                            )
                           )}
                         </td>
                       ))}
@@ -953,6 +1057,56 @@ export default function MorphologicalTab() {
                   ))}
                 </tbody>
               </table>
+              <div className="mt-4 flex gap-2">
+                {parameters.map((p, pIdx) => (
+                  <div key={pIdx} className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500">{p.name}:</span>
+                    <button
+                      onClick={() => {
+                        if (p.states.length < 7) {
+                          setParameters(prev => prev.map((param, pi) => {
+                            if (pi !== pIdx) return param;
+                            return { ...param, states: [...param.states, "新状态"] };
+                          }));
+                        }
+                      }}
+                      disabled={p.states.length >= 7}
+                      className="text-xs px-2 py-1 bg-green-50 text-green-700 rounded hover:bg-green-100 disabled:opacity-50"
+                    >
+                      + 状态
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (p.states.length > 3) {
+                          setParameters(prev => prev.map((param, pi) => {
+                            if (pi !== pIdx) return param;
+                            return { ...param, states: param.states.slice(0, -1) };
+                          }));
+                        }
+                      }}
+                      disabled={p.states.length <= 3}
+                      className="text-xs px-2 py-1 bg-red-50 text-red-700 rounded hover:bg-red-100 disabled:opacity-50"
+                    >
+                      - 状态
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {orthogonalityWarnings.length > 0 && (
+                <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertTriangle className="w-5 h-5 text-yellow-600" />
+                    <h4 className="font-medium text-yellow-800">Parameter Overlap Detected</h4>
+                  </div>
+                  <ul className="text-sm text-yellow-700 space-y-1">
+                    {orthogonalityWarnings.map((warning, idx) => (
+                      <li key={idx}>
+                        <strong>{warning.param1_name}</strong> and <strong>{warning.param2_name}</strong>: {warning.overlap_description}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1040,6 +1194,18 @@ export default function MorphologicalTab() {
           )}
         </div>
       )}
+
+      {/* Tab 4: 方案收敛 */}
+      {currentTab === 3 && currentAnalysisId && (
+        <div className="animate-fade-in">
+          <Tab4Convergence
+            analysisId={currentAnalysisId}
+            parameters={parameters}
+            matrixData={matrixData}
+          />
+        </div>
+      )}
+
       {currentTab === 1 && isMatrixFullscreen && createPortal(
         <div className="fixed inset-0 z-50">
           <button

@@ -734,17 +734,17 @@ export default function ResearchArea() {
                   </div>
                   <button
                     onClick={handleStartDeepResearch}
-                    disabled={!queryInput.trim() || deepResearchStatus === 'streaming'}
+                    disabled={!queryInput.trim()}
                     className={`px-5 py-2.5 rounded-xl font-medium text-sm flex items-center gap-2 transition-all shadow-sm ${
-                      !queryInput.trim() || deepResearchStatus === 'streaming'
+                      !queryInput.trim()
                         ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
                         : 'bg-indigo-600 hover:bg-indigo-700 text-white'
                     }`}
                   >
-                    {deepResearchStatus === 'streaming' ? (
+                    {!queryInput.trim() ? (
                       <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        研究中...
+                        <Search className="w-4 h-4" />
+                        开始研究
                       </>
                     ) : (
                       <>
