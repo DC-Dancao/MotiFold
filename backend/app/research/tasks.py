@@ -6,8 +6,10 @@ import asyncio
 import json
 import logging
 
+import redis
 from langchain_core.messages import HumanMessage
 
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.research.agent import build_graph, level_defaults_for
 from app.research.models import ResearchReport
@@ -81,6 +83,7 @@ def process_research(
         }
 
         final_state = None
+        error_msg = None
         try:
             async for event in graph.astream(initial_state, config):
                 # Track the final state from the last event
@@ -111,6 +114,7 @@ def process_research(
                 })
         except Exception as e:
             logger.error(f"Research failed for task {task_id}: {e}")
+            error_msg = str(e)
             await publish_event(task_id, {
                 "type": "error",
                 "message": str(e),
@@ -193,5 +197,22 @@ def process_research(
             "report_id": saved_report_id,
             "report": final_report,
         })
+
+        # Global notification for cross-tab alerts (only on completion)
+        if user_id is not None:
+            redis_client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
+            channel = f"user_notifications_{user_id}"
+            notification = {
+                "type": "research_report",
+                "task_type": "research_complete",
+                "resource_type": "research_report",
+                "resource_id": saved_report_id,
+                "result": "success" if final_report else "error",
+                "status": "done" if final_report else "error",
+                "title": "研究完成" if final_report else "研究失败",
+                "message": f"关于「{research_topic[:20]}...」的研究报告已生成" if final_report else f"研究失败: {error_msg}",
+                "link": f"/research?report_id={saved_report_id}" if saved_report_id else None,
+            }
+            redis_client.publish(channel, json.dumps(notification))
 
     asyncio.run(_run())
