@@ -6,6 +6,7 @@ class Workspace(Base):
     __tablename__ = "workspaces"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
+    org_slug = Column(String(50), nullable=True, index=True)  # null = personal workspace, non-null = org workspace
     name = Column(String, nullable=False, default="My Workspace")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import LeftSidebar from "../../components/layout/LeftSidebar";
+import WorkspaceLayoutClient from "./layout-client";
 
 export default async function WorkspaceLayout({
   children,
@@ -16,13 +16,8 @@ export default async function WorkspaceLayout({
   }
 
   return (
-    <div className="bg-slate-50 text-slate-900 h-screen overflow-hidden flex">
-      <Suspense fallback={<div className="w-[356px] bg-slate-950 flex flex-shrink-0 z-20"></div>}>
-        <LeftSidebar />
-      </Suspense>
-      <Suspense fallback={<div className="flex-1 bg-white"></div>}>
-        {children}
-      </Suspense>
-    </div>
+    <WorkspaceLayoutClient>
+      {children}
+    </WorkspaceLayoutClient>
   );
 }

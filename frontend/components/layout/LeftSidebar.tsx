@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { fetchWithAuth, getApiUrl } from '../../app/lib/api';
 import { clearAuthCookies } from '../../app/lib/auth-actions';
+import { useOrg } from '../../app/lib/org-context';
 import {
   MessageSquare,
   ChevronDown,
@@ -92,6 +93,12 @@ export default function LeftSidebar() {
   const [newWorkspaceName, setNewWorkspaceName] = useState('');
   const [chatToDelete, setChatToDelete] = useState<number | null>(null);
   const LIMIT = 20;
+
+  const { organizations, currentOrg, setCurrentOrg, isLoading: isLoadingOrgs } = useOrg();
+  const [isOrgDropdownOpen, setIsOrgDropdownOpen] = useState(false);
+  const [isCreateOrgModalOpen, setIsCreateOrgModalOpen] = useState(false);
+  const [newOrgName, setNewOrgName] = useState('');
+  const [newOrgSlug, setNewOrgSlug] = useState('');
 
   const activeChatId = searchParams.get('chatId');
 
@@ -457,6 +464,43 @@ export default function LeftSidebar() {
 
   const activeWorkspace = workspaces.find(w => w.id === activeWorkspaceId);
 
+  const handleSelectOrg = (org: typeof organizations[0]) => {
+    setCurrentOrg(org);
+    setIsOrgDropdownOpen(false);
+    // Refresh data after org change
+    setSkip(0);
+    setChats([]);
+    setActiveWorkspaceId(null);
+    setWorkspaces([]);
+  };
+
+  const handleCreateOrgClick = () => {
+    setNewOrgName('');
+    setNewOrgSlug('');
+    setIsOrgDropdownOpen(false);
+    setIsCreateOrgModalOpen(true);
+  };
+
+  const confirmCreateOrg = async () => {
+    if (!newOrgName.trim() || !newOrgSlug.trim()) return;
+
+    try {
+      const apiUrl = getApiUrl();
+      const res = await fetchWithAuth(`${apiUrl}/api/orgs/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newOrgName.trim(), slug: newOrgSlug.trim().toLowerCase().replace(/\s+/g, '-') })
+      });
+      if (res.ok) {
+        const newOrg = await res.json();
+        handleSelectOrg(newOrg);
+        setIsCreateOrgModalOpen(false);
+      }
+    } catch (e) {
+      console.error('Failed to create org', e);
+    }
+  };
+
   const handleSelectChat = (id: number) => {
     router.push(`/chat?chatId=${id}`);
   };
@@ -493,8 +537,46 @@ export default function LeftSidebar() {
     <>
       {/* 1. Leftmost Global Sidebar (Topics) */}
       <aside className="w-[76px] bg-slate-950 flex flex-col items-center py-4 flex-shrink-0 z-20 shadow-xl">
-        <div className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-bold text-xl shadow-lg shadow-indigo-500/30 mb-6 cursor-pointer hover:bg-indigo-500 transition-colors">
-          M
+        {/* Org Selector */}
+        <div className="relative mb-4">
+          <button
+            onClick={() => setIsOrgDropdownOpen(!isOrgDropdownOpen)}
+            className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-bold text-xl shadow-lg shadow-indigo-500/30 hover:bg-indigo-500 transition-colors"
+            title={currentOrg?.name || 'Select Org'}
+          >
+            {isLoadingOrgs ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              currentOrg?.name?.substring(0, 2).toUpperCase() || 'M'
+            )}
+          </button>
+
+          {isOrgDropdownOpen && (
+            <div className="absolute left-full ml-2 top-0 w-48 bg-slate-800 rounded-xl shadow-xl border border-slate-700 py-1 z-50">
+              <div className="px-3 py-2 text-xs text-slate-400 border-b border-slate-700">
+                选择组织
+              </div>
+              {organizations.map(org => (
+                <button
+                  key={org.id}
+                  onClick={() => handleSelectOrg(org)}
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-700 transition-colors ${
+                    currentOrg?.id === org.id ? 'text-indigo-400' : 'text-white'
+                  }`}
+                >
+                  {org.name}
+                </button>
+              ))}
+              <div className="border-t border-slate-700 mt-1 pt-1">
+                <button
+                  onClick={handleCreateOrgClick}
+                  className="w-full text-left px-3 py-2 text-sm text-indigo-400 hover:bg-slate-700 transition-colors flex items-center gap-2"
+                >
+                  <Plus className="w-3 h-3" /> 新建组织
+                </button>
+              </div>
+            </div>
+          )}
         </div>
         
         <div className="flex-1 flex flex-col gap-3 overflow-y-auto overflow-x-hidden w-full px-2 items-center">
@@ -975,6 +1057,43 @@ export default function LeftSidebar() {
                 onClick={confirmCreateWorkspace}
                 disabled={!newWorkspaceName.trim()}
                 className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                创建
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Org Modal */}
+      {isCreateOrgModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 w-96 shadow-xl">
+            <h3 className="text-lg font-bold mb-4">新建组织</h3>
+            <input
+              type="text"
+              placeholder="组织名称"
+              value={newOrgName}
+              onChange={(e) => setNewOrgName(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg mb-3"
+            />
+            <input
+              type="text"
+              placeholder="URL slug (如 my-org)"
+              value={newOrgSlug}
+              onChange={(e) => setNewOrgSlug(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg mb-4"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => setIsCreateOrgModalOpen(false)}
+                className="flex-1 px-4 py-2 border border-slate-200 rounded-lg hover:bg-slate-50"
+              >
+                取消
+              </button>
+              <button
+                onClick={confirmCreateOrg}
+                className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
               >
                 创建
               </button>

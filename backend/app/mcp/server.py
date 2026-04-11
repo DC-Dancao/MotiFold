@@ -7,19 +7,38 @@ from fastapi import Request
 from fastmcp import FastMCP
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy.future import select
+
 from app.core.security import _get_user_by_token
 from app.core.database import AsyncSessionLocal
 from app.mcp.tools import MCPToolsConfig, register_mcp_tools
+from app.org.models import Organization, OrganizationMember
+from app.tenant.context import get_schema_name
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Context variable to hold the current user_id for MCP requests
+# Context variables for MCP requests
 _current_user_id: ContextVar[int | None] = ContextVar("current_user_id", default=None)
+_current_org_slug: ContextVar[str | None] = ContextVar("current_org_slug", default=None)
+_current_org_schema: ContextVar[str | None] = ContextVar("current_org_schema", default=None)
 
 def get_current_user_id() -> int | None:
     """Get the current user_id from context."""
     return _current_user_id.get()
+
+def get_current_org_slug() -> str | None:
+    """Get the current org slug from context."""
+    return _current_org_slug.get()
+
+def get_current_org_schema() -> str | None:
+    """Get the current org schema from context."""
+    return _current_org_schema.get()
+
+
+def _is_valid_org_slug(org_slug: str) -> bool:
+    return org_slug.replace("_", "").replace("-", "").isalnum()
+
 
 def create_mcp_server() -> FastMCP:
     """
@@ -30,6 +49,8 @@ def create_mcp_server() -> FastMCP:
     # Configure and register tools
     config = MCPToolsConfig(
         user_id_resolver=get_current_user_id,
+        org_slug_resolver=get_current_org_slug,
+        org_schema_resolver=get_current_org_schema,
         tools=None, # Register all default tools
     )
 
@@ -119,8 +140,9 @@ class MCPMiddleware:
             await self.app(scope, receive, send)
             return
 
-        # Extract auth token from header
+        # Extract auth token and org context from headers
         auth_header = self._get_header(scope, "Authorization")
+        org_slug = self._get_header(scope, "X-Org-ID")
         auth_token: str | None = None
         if auth_header:
             auth_token = auth_header[7:].strip() if auth_header.startswith("Bearer ") else auth_header.strip()
@@ -132,30 +154,61 @@ class MCPMiddleware:
                 await self._send_error(send, 401, "Authorization header required")
                 return
 
-        # Authenticate token
-        user_id = None
-        if auth_token:
-            local_api_key = os.environ.get("MOTIFOLD_MCP_AUTH_TOKEN")
-            if local_api_key and auth_token == local_api_key:
-                # Local override for testing, we can pretend to be a superuser or the first user
-                # We will assign user_id = 1 for local debugging if static token matches
-                user_id = 1
-            else:
-                try:
-                    async with AsyncSessionLocal() as session:
-                        user = await _get_user_by_token(auth_token, session)
-                        user_id = user.id
-                except Exception as e:
-                    await self._send_error(send, 401, f"Authentication failed: {str(e)}")
-                    return
-
-        if not user_id:
-            await self._send_error(send, 401, "Valid Authentication required for MCP")
+        if not org_slug:
+            await self._send_error(send, 400, "X-Org-ID header required")
+            return
+        if not _is_valid_org_slug(org_slug):
+            await self._send_error(send, 400, "Invalid org slug format")
             return
 
-        # Set user_id context
+        # Authenticate token and validate org membership
+        user_id = None
+        try:
+            async with AsyncSessionLocal() as session:
+                local_api_key = os.environ.get("MOTIFOLD_MCP_AUTH_TOKEN")
+                if auth_token:
+                    if local_api_key and auth_token == local_api_key:
+                        # Local override for testing, we can pretend to be a superuser or the first user
+                        # We will assign user_id = 1 for local debugging if static token matches
+                        user_id = 1
+                    else:
+                        user = await _get_user_by_token(auth_token, session)
+                        user_id = user.id
+
+                if not user_id:
+                    await self._send_error(send, 401, "Valid Authentication required for MCP")
+                    return
+
+                org_result = await session.execute(
+                    select(Organization).where(Organization.id == org_slug)
+                )
+                org = org_result.scalars().first()
+                if not org:
+                    await self._send_error(send, 404, "Organization not found")
+                    return
+                if org.status != "active":
+                    await self._send_error(send, 503, "Organization not active")
+                    return
+
+                membership_result = await session.execute(
+                    select(OrganizationMember).where(
+                        OrganizationMember.organization_id == org_slug,
+                        OrganizationMember.user_id == str(user_id),
+                    )
+                )
+                membership = membership_result.scalars().first()
+                if not membership:
+                    await self._send_error(send, 403, "Not a member of this organization")
+                    return
+        except Exception as e:
+            await self._send_error(send, 401, f"Authentication failed: {str(e)}")
+            return
+
+        # Set request context
         user_id_token = _current_user_id.set(user_id)
-        
+        org_slug_token = _current_org_slug.set(org_slug)
+        org_schema_token = _current_org_schema.set(get_schema_name(org_slug) if org_slug else None)
+
         try:
             new_scope = scope.copy()
             # Strip prefix from path for the mcp app routing
@@ -173,6 +226,8 @@ class MCPMiddleware:
             await self.mcp_app(new_scope, receive, send)
         finally:
             _current_user_id.reset(user_id_token)
+            _current_org_slug.reset(org_slug_token)
+            _current_org_schema.reset(org_schema_token)
 
     async def _send_error(self, send, status: int, message: str, extra_headers: dict[str, str] | None = None):
         """Send an error response."""

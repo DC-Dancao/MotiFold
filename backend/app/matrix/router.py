@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -7,8 +7,9 @@ from typing import List
 import json
 
 from app.llm.factory import get_llm
-from app.core.database import get_db
+from app.core.database import get_db, get_db_with_schema
 from app.auth.models import User
+from app.org.dependencies import get_current_org_membership
 from app.matrix.models import Keyword, MorphologicalAnalysis
 from app.core.security import get_current_user
 from app.core.config import settings
@@ -45,6 +46,7 @@ router = APIRouter(prefix="/matrix", tags=["matrix"])
 async def extract_question(
     req: ExtractQuestionRequest,
     current_user: User = Depends(get_current_user),
+    membership = Depends(get_current_org_membership),
 ):
     try:
         llm = get_llm(model_name=settings.OPENAI_MODEL_MINI, temperature=0, streaming=True)
@@ -79,8 +81,10 @@ async def extract_question(
 @router.post("/morphological/generate", response_model=GenerateMorphologicalResponse)
 async def generate_morphological(
     req: GenerateMorphologicalRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db_with_schema),
+    membership = Depends(get_current_org_membership),
 ):
     try:
         from app.worker.matrix_tasks import generate_morphological_task
@@ -99,7 +103,8 @@ async def generate_morphological(
         await db.refresh(analysis)
         
         # Enqueue the Celery task
-        generate_morphological_task.delay(analysis.id)
+        org_schema = getattr(request.state, 'org_schema', None)
+        generate_morphological_task.delay(analysis.id, org_schema)
         
         return GenerateMorphologicalResponse(
             id=analysis.id,
@@ -114,8 +119,10 @@ async def generate_morphological(
 @router.post("/morphological/evaluate", response_model=EvaluateConsistencyResponse)
 async def evaluate_consistency(
     req: EvaluateConsistencyRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db_with_schema),
+    membership = Depends(get_current_org_membership),
 ):
     try:
         from app.worker.matrix_tasks import evaluate_consistency_task
@@ -133,8 +140,9 @@ async def evaluate_consistency(
             raise HTTPException(status_code=409, detail="Morphological analysis not found or not in a valid state for evaluation")
             
         await db.commit()
-        
-        evaluate_consistency_task.delay(analysis.id)
+
+        org_schema = getattr(request.state, 'org_schema', None)
+        evaluate_consistency_task.delay(analysis.id, org_schema)
         
         return EvaluateConsistencyResponse(
             id=analysis.id,
@@ -150,8 +158,10 @@ async def evaluate_consistency(
 @router.post("/morphological", response_model=MorphologicalAnalysisSchema)
 async def save_morphological_analysis(
     req: SaveMorphologicalRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db_with_schema),
+    membership = Depends(get_current_org_membership),
 ):
     try:
         parameters_json = json.dumps([p.model_dump() for p in req.parameters])
@@ -196,8 +206,10 @@ async def save_morphological_analysis(
 
 @router.get("/morphological", response_model=List[MorphologicalAnalysisSchema])
 async def get_morphological_analyses(
+    request: Request,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db_with_schema),
+    membership = Depends(get_current_org_membership),
 ):
     stmt = select(MorphologicalAnalysis).where(MorphologicalAnalysis.user_id == current_user.id).order_by(MorphologicalAnalysis.updated_at.desc())
     result = await db.execute(stmt)
@@ -220,8 +232,10 @@ async def get_morphological_analyses(
 @router.get("/morphological/{analysis_id}", response_model=MorphologicalAnalysisSchema)
 async def get_morphological_analysis(
     analysis_id: int,
+    request: Request,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db_with_schema),
+    membership = Depends(get_current_org_membership),
 ):
     stmt = select(MorphologicalAnalysis).where(MorphologicalAnalysis.id == analysis_id, MorphologicalAnalysis.user_id == current_user.id)
     result = await db.execute(stmt)
@@ -244,8 +258,10 @@ async def get_morphological_analysis(
 @router.delete("/morphological/{analysis_id}")
 async def delete_morphological_analysis(
     analysis_id: int,
+    request: Request,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db_with_schema),
+    membership = Depends(get_current_org_membership),
 ):
     stmt = select(MorphologicalAnalysis).where(MorphologicalAnalysis.id == analysis_id, MorphologicalAnalysis.user_id == current_user.id)
     result = await db.execute(stmt)
@@ -262,8 +278,10 @@ async def delete_morphological_analysis(
 @router.get("/morphological/{analysis_id}/stream")
 async def stream_morphological_analysis(
     analysis_id: int,
+    request: Request,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_with_schema),
+    membership = Depends(get_current_org_membership),
 ):
     """
     SSE stream of morphological analysis progress events.
@@ -343,7 +361,8 @@ async def stream_morphological_analysis(
 @router.post("/keywords/generate", response_model=GenerateKeywordsResponse)
 async def generate_keywords(
     req: GenerateKeywordsRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    membership = Depends(get_current_org_membership),
 ):
     try:
         llm = get_llm(model_name=settings.OPENAI_MODEL_MINI)
@@ -366,7 +385,8 @@ async def generate_keywords(
 @router.post("/keywords/ai-modify", response_model=ModifyKeywordResponse)
 async def ai_modify_keyword(
     req: ModifyKeywordRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    membership = Depends(get_current_org_membership),
 ):
     try:
         llm = get_llm(model_name=settings.OPENAI_MODEL_MINI)
@@ -393,8 +413,10 @@ async def ai_modify_keyword(
 
 @router.get("/keywords", response_model=List[KeywordSchema])
 async def get_keywords(
+    request: Request,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db_with_schema),
+    membership = Depends(get_current_org_membership),
 ):
     stmt = select(Keyword).where(Keyword.user_id == current_user.id).order_by(Keyword.created_at.desc())
     result = await db.execute(stmt)
@@ -414,8 +436,10 @@ async def get_keywords(
 @router.post("/keywords", response_model=List[KeywordSchema])
 async def save_keywords(
     req: SaveKeywordRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db_with_schema),
+    membership = Depends(get_current_org_membership),
 ):
     saved = []
     for word in req.words:
@@ -445,8 +469,10 @@ async def save_keywords(
 @router.delete("/keywords/{keyword_id}")
 async def delete_keyword(
     keyword_id: int,
+    request: Request,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db_with_schema),
+    membership = Depends(get_current_org_membership),
 ):
     stmt = select(Keyword).where(Keyword.id == keyword_id, Keyword.user_id == current_user.id)
     result = await db.execute(stmt)

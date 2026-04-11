@@ -3,6 +3,13 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, UTC
 from typing import Literal
 
+from sqlalchemy import select, text
+
+from app.blackboard.models import BlackboardData
+from app.core.database import AsyncSessionLocal
+from app.matrix.models import MorphologicalAnalysis
+from app.research.models import ResearchReport
+
 OperationType = Literal["blackboard", "matrix", "research", "chat"]
 OperationStatusValue = Literal["pending", "started", "processing", "done", "failed"]
 
@@ -41,69 +48,104 @@ class OperationStatus:
         )
 
 
-async def get_operation_status(task_id: str) -> OperationStatus:
+async def get_operation_status(
+    task_id: str,
+    *,
+    user_id: int,
+    org_schema: str | None = None,
+) -> OperationStatus:
     """
-    Look up operation status by task_id.
+    Look up operation status by task_id for the authenticated user within the current org schema.
     Checks Redis for processing flag + research state.
-    Falls back to DB for blackboard/matrix records.
-    Returns OperationStatus.error() if not found.
+    Falls back to DB for owned research/blackboard/matrix records.
+    Returns OperationStatus.not_found() if not found.
     """
     from app.research.stream import get_processing_status, get_research_state
-    from app.blackboard.models import BlackboardData
-    from app.matrix.models import MorphologicalAnalysis
-    from app.core.database import AsyncSessionLocal
-    from sqlalchemy import select
 
     # Check research via Redis first
     is_processing = await get_processing_status(task_id)
     if is_processing:
         redis_state = await get_research_state(task_id)
         if redis_state:
+            async with AsyncSessionLocal() as session:
+                if org_schema:
+                    await session.execute(text(f'SET search_path TO "{org_schema}", public'))
+                report_result = await session.execute(
+                    select(ResearchReport).where(
+                        ResearchReport.task_id == task_id,
+                        ResearchReport.user_id == user_id,
+                    )
+                )
+                if report_result.scalars().first():
+                    return OperationStatus(
+                        id=task_id,
+                        type="research",
+                        status=_map_research_status(redis_state.get("status", "running")),
+                        message=redis_state.get("message", "Research in progress"),
+                        progress=redis_state.get("progress", 0.0),
+                        created_at=datetime.now(UTC).isoformat() + "Z",
+                    )
+
+    async with AsyncSessionLocal() as session:
+        if org_schema:
+            await session.execute(text(f'SET search_path TO "{org_schema}", public'))
+
+        report_result = await session.execute(
+            select(ResearchReport).where(
+                ResearchReport.task_id == task_id,
+                ResearchReport.user_id == user_id,
+            )
+        )
+        report = report_result.scalars().first()
+        if report:
             return OperationStatus(
                 id=task_id,
                 type="research",
-                status=_map_research_status(redis_state.get("status", "running")),
-                message=redis_state.get("message", "Research in progress"),
-                progress=redis_state.get("progress", 0.0),
-                created_at=datetime.now(UTC).isoformat() + "Z",
+                status="done" if report.status == "done" else _map_research_status(report.status),
+                message="Research complete" if report.status == "done" else "Research in progress",
+                progress=1.0 if report.status == "done" else 0.5,
+                created_at=report.created_at.isoformat() if report.created_at else "",
             )
 
-    # Check if it's a blackboard or matrix record (numeric ID)
-    try:
-        record_id = int(task_id)
-        async with AsyncSessionLocal() as session:
-            # Check blackboard first
-            bb_result = await session.execute(
-                select(BlackboardData).where(BlackboardData.id == record_id)
-            )
-            bb = bb_result.scalars().first()
-            if bb:
-                return OperationStatus(
-                    id=task_id,
-                    type="blackboard",
-                    status=_map_blackboard_status(bb.status),
-                    message=_blackboard_status_message(bb.status),
-                    progress=_blackboard_progress(bb.status),
-                    created_at=bb.created_at.isoformat() if bb.created_at else "",
-                )
-            # Check matrix analysis
-            ma_result = await session.execute(
-                select(MorphologicalAnalysis).where(MorphologicalAnalysis.id == record_id)
-            )
-            ma = ma_result.scalars().first()
-            if ma:
-                return OperationStatus(
-                    id=task_id,
-                    type="matrix",
-                    status=_map_matrix_status(ma.status),
-                    message=_matrix_status_message(ma.status),
-                    progress=_matrix_progress(ma.status),
-                    created_at=ma.created_at.isoformat() if ma.created_at else "",
-                )
-    except ValueError:
-        pass
+        try:
+            record_id = int(task_id)
+        except ValueError:
+            return OperationStatus.not_found(task_id)
 
-    # Not found
+        bb_result = await session.execute(
+            select(BlackboardData).where(
+                BlackboardData.id == record_id,
+                BlackboardData.user_id == user_id,
+            )
+        )
+        bb = bb_result.scalars().first()
+        if bb:
+            return OperationStatus(
+                id=task_id,
+                type="blackboard",
+                status=_map_blackboard_status(bb.status),
+                message=_blackboard_status_message(bb.status),
+                progress=_blackboard_progress(bb.status),
+                created_at=bb.created_at.isoformat() if bb.created_at else "",
+            )
+
+        ma_result = await session.execute(
+            select(MorphologicalAnalysis).where(
+                MorphologicalAnalysis.id == record_id,
+                MorphologicalAnalysis.user_id == user_id,
+            )
+        )
+        ma = ma_result.scalars().first()
+        if ma:
+            return OperationStatus(
+                id=task_id,
+                type="matrix",
+                status=_map_matrix_status(ma.status),
+                message=_matrix_status_message(ma.status),
+                progress=_matrix_progress(ma.status),
+                created_at=ma.created_at.isoformat() if ma.created_at else "",
+            )
+
     return OperationStatus.not_found(task_id)
 
 

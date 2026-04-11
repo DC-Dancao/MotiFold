@@ -3,7 +3,7 @@ import logging
 import asyncio
 import redis
 from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 
 from app.core.config import settings
 from app.blackboard.models import BlackboardData
@@ -20,13 +20,17 @@ redis_client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
 
 
 @celery_app.task(name="generate_blackboard_task")
-def generate_blackboard_task(blackboard_id: int, topic: str):
+def generate_blackboard_task(blackboard_id: int, topic: str, org_schema: str | None = None):
     """
     Asynchronous task to generate a blackboard explanation using the LangGraph agent.
     """
     logger.info(f"Starting blackboard generation for blackboard {blackboard_id}")
     db: Session = SessionLocal()
     try:
+        # Set search_path to org schema if provided
+        if org_schema:
+            db.execute(text(f'SET search_path TO "{org_schema}", public'))
+
         # 1. Update status to generating
         bb_record = db.query(BlackboardData).filter(BlackboardData.id == blackboard_id).first()
         if not bb_record:

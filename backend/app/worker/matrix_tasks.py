@@ -3,7 +3,7 @@ import logging
 import asyncio
 import redis
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine, update
+from sqlalchemy import create_engine, update, text
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
@@ -27,7 +27,7 @@ SessionLocal = sessionmaker(bind=engine)
 
 
 @celery_app.task(name="generate_morphological_task")
-def generate_morphological_task(analysis_id: int):
+def generate_morphological_task(analysis_id: int, org_schema: str | None = None):
     async def _run():
         await set_processing_flag(analysis_id)
 
@@ -41,6 +41,8 @@ def generate_morphological_task(analysis_id: int):
         # Fetch analysis for user_id and focus_question
         db_sync = SessionLocal()
         try:
+            if org_schema:
+                db_sync.execute(text(f'SET search_path TO "{org_schema}", public'))
             analysis = db_sync.query(MorphologicalAnalysis).filter(MorphologicalAnalysis.id == analysis_id).first()
             if not analysis:
                 await clear_processing_flag(analysis_id)
@@ -60,6 +62,8 @@ def generate_morphological_task(analysis_id: int):
 
         # Update DB status
         async with AsyncSessionLocal() as db:
+            if org_schema:
+                await db.execute(text(f'SET search_path TO "{org_schema}", public'))
             stmt = (
                 update(MorphologicalAnalysis)
                 .where(MorphologicalAnalysis.id == analysis_id)
@@ -79,6 +83,8 @@ def generate_morphological_task(analysis_id: int):
 
             # Update DB with parameters
             async with AsyncSessionLocal() as db:
+                if org_schema:
+                    await db.execute(text(f'SET search_path TO "{org_schema}", public'))
                 stmt = (
                     update(MorphologicalAnalysis)
                     .where(MorphologicalAnalysis.id == analysis_id)
@@ -118,6 +124,8 @@ def generate_morphological_task(analysis_id: int):
 
             # Update DB with error status
             async with AsyncSessionLocal() as db:
+                if org_schema:
+                    await db.execute(text(f'SET search_path TO "{org_schema}", public'))
                 stmt = (
                     update(MorphologicalAnalysis)
                     .where(MorphologicalAnalysis.id == analysis_id)
@@ -164,7 +172,7 @@ def generate_morphological_task(analysis_id: int):
 
 
 @celery_app.task(name="evaluate_consistency_task")
-def evaluate_consistency_task(analysis_id: int):
+def evaluate_consistency_task(analysis_id: int, org_schema: str | None = None):
     async def _run():
         await set_processing_flag(analysis_id)
 
@@ -178,6 +186,8 @@ def evaluate_consistency_task(analysis_id: int):
         # Fetch analysis for parameters and user_id
         db_sync = SessionLocal()
         try:
+            if org_schema:
+                db_sync.execute(text(f'SET search_path TO "{org_schema}", public'))
             analysis = db_sync.query(MorphologicalAnalysis).filter(MorphologicalAnalysis.id == analysis_id).first()
             if not analysis:
                 await clear_processing_flag(analysis_id)
@@ -197,6 +207,8 @@ def evaluate_consistency_task(analysis_id: int):
 
         # Update DB status
         async with AsyncSessionLocal() as db:
+            if org_schema:
+                await db.execute(text(f'SET search_path TO "{org_schema}", public'))
             stmt = (
                 update(MorphologicalAnalysis)
                 .where(MorphologicalAnalysis.id == analysis_id)
@@ -220,6 +232,8 @@ def evaluate_consistency_task(analysis_id: int):
 
             # Update DB with matrix
             async with AsyncSessionLocal() as db:
+                if org_schema:
+                    await db.execute(text(f'SET search_path TO "{org_schema}", public'))
                 stmt = (
                     update(MorphologicalAnalysis)
                     .where(MorphologicalAnalysis.id == analysis_id)
@@ -259,6 +273,8 @@ def evaluate_consistency_task(analysis_id: int):
 
             # Update DB with error status
             async with AsyncSessionLocal() as db:
+                if org_schema:
+                    await db.execute(text(f'SET search_path TO "{org_schema}", public'))
                 stmt = (
                     update(MorphologicalAnalysis)
                     .where(MorphologicalAnalysis.id == analysis_id)

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from fastmcp import FastMCP
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -16,6 +17,11 @@ from app.research.models import ResearchReport
 from app.mcp.operations import OperationStatus, get_operation_status
 
 logger = logging.getLogger(__name__)
+
+async def _set_search_path(session, config: MCPToolsConfig) -> None:
+    org_schema = config.org_schema_resolver()
+    if org_schema:
+        await session.execute(text(f'SET search_path TO "{org_schema}", public'))
 
 ALL_TOOLS = frozenset({
     # Workspace
@@ -40,6 +46,8 @@ ALL_TOOLS = frozenset({
 @dataclass
 class MCPToolsConfig:
     user_id_resolver: Callable[[], int | None]
+    org_slug_resolver: Callable[[], str | None]
+    org_schema_resolver: Callable[[], str | None]
     tools: set[str] | None = None  # None means all tools
 
 
@@ -131,6 +139,7 @@ def _register_workspace_list(mcp: FastMCP, config: MCPToolsConfig) -> None:
 
         try:
             async with AsyncSessionLocal() as session:
+                await _set_search_path(session, config)
                 result = await session.execute(select(Workspace).where(Workspace.user_id == user_id))
                 workspaces = result.scalars().all()
                 return json.dumps({
@@ -154,6 +163,7 @@ def _register_workspace_get(mcp: FastMCP, config: MCPToolsConfig) -> None:
 
         try:
             async with AsyncSessionLocal() as session:
+                await _set_search_path(session, config)
                 result = await session.execute(
                     select(Workspace).where(Workspace.id == workspace_id, Workspace.user_id == user_id)
                 )
@@ -180,6 +190,7 @@ def _register_workspace_create(mcp: FastMCP, config: MCPToolsConfig) -> None:
 
         try:
             async with AsyncSessionLocal() as session:
+                await _set_search_path(session, config)
                 workspace = Workspace(user_id=user_id, name=name)
                 session.add(workspace)
                 await session.commit()
@@ -204,6 +215,7 @@ def _register_workspace_delete(mcp: FastMCP, config: MCPToolsConfig) -> None:
 
         try:
             async with AsyncSessionLocal() as session:
+                await _set_search_path(session, config)
                 result = await session.execute(
                     select(Workspace).where(Workspace.id == workspace_id, Workspace.user_id == user_id)
                 )
@@ -232,6 +244,7 @@ def _register_chat_list(mcp: FastMCP, config: MCPToolsConfig) -> None:
 
         try:
             async with AsyncSessionLocal() as session:
+                await _set_search_path(session, config)
                 stmt = select(Chat).where(Chat.user_id == user_id)
                 if workspace_id is not None:
                     stmt = stmt.where(Chat.workspace_id == workspace_id)
@@ -258,6 +271,7 @@ def _register_chat_get(mcp: FastMCP, config: MCPToolsConfig) -> None:
 
         try:
             async with AsyncSessionLocal() as session:
+                await _set_search_path(session, config)
                 result = await session.execute(
                     select(Chat).where(Chat.id == chat_id, Chat.user_id == user_id)
                 )
@@ -285,6 +299,7 @@ def _register_chat_create(mcp: FastMCP, config: MCPToolsConfig) -> None:
 
         try:
             async with AsyncSessionLocal() as session:
+                await _set_search_path(session, config)
                 if workspace_id is not None:
                     ws_result = await session.execute(
                         select(Workspace).where(Workspace.id == workspace_id, Workspace.user_id == user_id)
@@ -317,6 +332,7 @@ def _register_chat_send_message(mcp: FastMCP, config: MCPToolsConfig) -> None:
 
         try:
             async with AsyncSessionLocal() as session:
+                await _set_search_path(session, config)
                 result = await session.execute(
                     select(Chat).where(Chat.id == chat_id, Chat.user_id == user_id)
                 )
@@ -332,7 +348,7 @@ def _register_chat_send_message(mcp: FastMCP, config: MCPToolsConfig) -> None:
                 await redis_client.setex(f"chat_processing_{chat_id}", 300, "1")
             finally:
                 await redis_client.aclose()
-            process_message.delay(chat_id, content)
+            process_message.delay(chat_id, content, config.org_schema_resolver())
 
             return OperationStatus(
                 id=str(chat_id),
@@ -356,6 +372,7 @@ def _register_chat_get_history(mcp: FastMCP, config: MCPToolsConfig) -> None:
 
         try:
             async with AsyncSessionLocal() as session:
+                await _set_search_path(session, config)
                 result = await session.execute(
                     select(Chat).where(Chat.id == chat_id, Chat.user_id == user_id)
                 )
@@ -402,6 +419,7 @@ def _register_matrix_list_analyses(mcp: FastMCP, config: MCPToolsConfig) -> None
 
         try:
             async with AsyncSessionLocal() as session:
+                await _set_search_path(session, config)
                 stmt = select(MorphologicalAnalysis).where(MorphologicalAnalysis.user_id == user_id)
                 if workspace_id is not None:
                     stmt = stmt.where(MorphologicalAnalysis.workspace_id == workspace_id)
@@ -433,6 +451,7 @@ def _register_matrix_get_analysis(mcp: FastMCP, config: MCPToolsConfig) -> None:
 
         try:
             async with AsyncSessionLocal() as session:
+                await _set_search_path(session, config)
                 result = await session.execute(
                     select(MorphologicalAnalysis).where(
                         MorphologicalAnalysis.id == analysis_id,
@@ -466,6 +485,7 @@ def _register_matrix_start_analysis(mcp: FastMCP, config: MCPToolsConfig) -> Non
 
         try:
             async with AsyncSessionLocal() as session:
+                await _set_search_path(session, config)
                 analysis = MorphologicalAnalysis(
                     user_id=user_id,
                     workspace_id=workspace_id,
@@ -479,7 +499,7 @@ def _register_matrix_start_analysis(mcp: FastMCP, config: MCPToolsConfig) -> Non
                 await session.refresh(analysis)
 
                 from app.worker.matrix_tasks import generate_morphological_task
-                generate_morphological_task.delay(analysis.id)
+                generate_morphological_task.delay(analysis.id, config.org_schema_resolver())
 
                 status = OperationStatus(
                     id=str(analysis.id),
@@ -505,6 +525,7 @@ def _register_matrix_evaluate_consistency(mcp: FastMCP, config: MCPToolsConfig) 
 
         try:
             async with AsyncSessionLocal() as session:
+                await _set_search_path(session, config)
                 result = await session.execute(
                     select(MorphologicalAnalysis).where(
                         MorphologicalAnalysis.id == analysis_id,
@@ -524,7 +545,7 @@ def _register_matrix_evaluate_consistency(mcp: FastMCP, config: MCPToolsConfig) 
                 await session.commit()
 
                 from app.worker.matrix_tasks import evaluate_consistency_task
-                evaluate_consistency_task.delay(analysis_id)
+                evaluate_consistency_task.delay(analysis_id, config.org_schema_resolver())
 
                 status = OperationStatus(
                     id=str(analysis_id),
@@ -554,6 +575,7 @@ def _register_matrix_save_analysis(mcp: FastMCP, config: MCPToolsConfig) -> None
 
         try:
             async with AsyncSessionLocal() as session:
+                await _set_search_path(session, config)
                 parameters_json = json.dumps(parameters)
                 matrix_json = json.dumps(matrix)
 
@@ -601,6 +623,7 @@ def _register_matrix_delete_analysis(mcp: FastMCP, config: MCPToolsConfig) -> No
 
         try:
             async with AsyncSessionLocal() as session:
+                await _set_search_path(session, config)
                 result = await session.execute(
                     select(MorphologicalAnalysis).where(
                         MorphologicalAnalysis.id == analysis_id,
@@ -632,6 +655,7 @@ def _register_blackboard_list(mcp: FastMCP, config: MCPToolsConfig) -> None:
 
         try:
             async with AsyncSessionLocal() as session:
+                await _set_search_path(session, config)
                 stmt = select(BlackboardData).where(BlackboardData.user_id == user_id)
                 if workspace_id is not None:
                     stmt = stmt.where(BlackboardData.workspace_id == workspace_id)
@@ -663,6 +687,7 @@ def _register_blackboard_get(mcp: FastMCP, config: MCPToolsConfig) -> None:
 
         try:
             async with AsyncSessionLocal() as session:
+                await _set_search_path(session, config)
                 result = await session.execute(
                     select(BlackboardData).where(
                         BlackboardData.id == blackboard_id,
@@ -694,6 +719,7 @@ def _register_blackboard_generate(mcp: FastMCP, config: MCPToolsConfig) -> None:
 
         try:
             async with AsyncSessionLocal() as session:
+                await _set_search_path(session, config)
                 bb = BlackboardData(
                     user_id=user_id,
                     workspace_id=workspace_id,
@@ -706,7 +732,7 @@ def _register_blackboard_generate(mcp: FastMCP, config: MCPToolsConfig) -> None:
                 await session.refresh(bb)
 
                 from app.worker.blackboard_tasks import generate_blackboard_task
-                generate_blackboard_task.delay(bb.id, topic)
+                generate_blackboard_task.delay(bb.id, topic, config.org_schema_resolver())
 
                 status = OperationStatus(
                     id=str(bb.id),
@@ -732,6 +758,7 @@ def _register_blackboard_delete(mcp: FastMCP, config: MCPToolsConfig) -> None:
 
         try:
             async with AsyncSessionLocal() as session:
+                await _set_search_path(session, config)
                 result = await session.execute(
                     select(BlackboardData).where(
                         BlackboardData.id == blackboard_id,
@@ -763,6 +790,7 @@ def _register_research_list_reports(mcp: FastMCP, config: MCPToolsConfig) -> Non
 
         try:
             async with AsyncSessionLocal() as session:
+                await _set_search_path(session, config)
                 result = await session.execute(
                     select(ResearchReport)
                     .where(ResearchReport.user_id == user_id)
@@ -798,6 +826,7 @@ def _register_research_get_report(mcp: FastMCP, config: MCPToolsConfig) -> None:
 
         try:
             async with AsyncSessionLocal() as session:
+                await _set_search_path(session, config)
                 result = await session.execute(
                     select(ResearchReport).where(
                         ResearchReport.id == report_id,
@@ -849,6 +878,7 @@ def _register_research_start(mcp: FastMCP, config: MCPToolsConfig) -> None:
             effective_res = max_results if max_results is not None else default_results
 
             async with AsyncSessionLocal() as session:
+                await _set_search_path(session, config)
                 report = ResearchReport(
                     user_id=user_id,
                     query=query,
@@ -872,6 +902,7 @@ def _register_research_start(mcp: FastMCP, config: MCPToolsConfig) -> None:
                     max_iterations=effective_iters,
                     max_results=effective_res,
                     user_id=user_id,
+                    org_schema=config.org_schema_resolver(),
                 )
 
                 status = OperationStatus(
@@ -896,18 +927,8 @@ def _register_research_get_result(mcp: FastMCP, config: MCPToolsConfig) -> None:
             return OperationStatus.error(task_id, "Unauthorized").to_json()
 
         try:
-            from app.research.stream import get_redis
-            redis_client = await get_redis()
-            key = f"research_result_{task_id}"
-            result_json = await redis_client.get(key)
-            await redis_client.aclose()
-
-            if result_json:
-                data = json.loads(result_json)
-                return json.dumps({"result": data})
-
-            # Fall back to DB
             async with AsyncSessionLocal() as session:
+                await _set_search_path(session, config)
                 result = await session.execute(
                     select(ResearchReport).where(
                         ResearchReport.task_id == task_id,
@@ -919,7 +940,18 @@ def _register_research_get_result(mcp: FastMCP, config: MCPToolsConfig) -> None:
                     return OperationStatus.error(task_id, f"Research {task_id} not found").to_json()
                 if report.status != "done":
                     return OperationStatus.error(task_id, f"Research not yet complete (status: {report.status})").to_json()
-                return json.dumps({"result": {"report": report.report, "topic": report.research_topic}})
+
+            from app.research.stream import get_redis
+            redis_client = await get_redis()
+            key = f"research_result_{task_id}"
+            result_json = await redis_client.get(key)
+            await redis_client.aclose()
+
+            if result_json:
+                data = json.loads(result_json)
+                return json.dumps({"result": data})
+
+            return json.dumps({"result": {"report": report.report, "topic": report.research_topic}})
         except Exception as e:
             logger.error(f"Error getting research result: {e}", exc_info=True)
             return OperationStatus.error(task_id, str(e)).to_json()
@@ -934,16 +966,8 @@ def _register_research_get_state(mcp: FastMCP, config: MCPToolsConfig) -> None:
             return OperationStatus.error(task_id, "Unauthorized").to_json()
 
         try:
-            from app.research.stream import get_research_state, get_processing_status
-            is_processing = await get_processing_status(task_id)
-
-            if is_processing:
-                redis_state = await get_research_state(task_id)
-                if redis_state:
-                    return json.dumps(redis_state)
-
-            # Fall back to DB
             async with AsyncSessionLocal() as session:
+                await _set_search_path(session, config)
                 result = await session.execute(
                     select(ResearchReport).where(
                         ResearchReport.task_id == task_id,
@@ -953,16 +977,25 @@ def _register_research_get_state(mcp: FastMCP, config: MCPToolsConfig) -> None:
                 report = result.scalars().first()
                 if not report:
                     return OperationStatus.error(task_id, f"Research {task_id} not found").to_json()
-                return json.dumps({
-                    "status": report.status,
-                    "message": "Research complete" if report.status == "done" else "Research failed",
-                    "progress": 1.0,
-                    "research_topic": report.research_topic or "",
-                    "notes": json.loads(report.notes_json),
-                    "queries": json.loads(report.queries_json),
-                    "level": report.level,
-                    "task_id": task_id,
-                })
+
+            from app.research.stream import get_research_state, get_processing_status
+            is_processing = await get_processing_status(task_id)
+
+            if is_processing:
+                redis_state = await get_research_state(task_id)
+                if redis_state:
+                    return json.dumps(redis_state)
+
+            return json.dumps({
+                "status": report.status,
+                "message": "Research complete" if report.status == "done" else "Research failed",
+                "progress": 1.0,
+                "research_topic": report.research_topic or "",
+                "notes": json.loads(report.notes_json),
+                "queries": json.loads(report.queries_json),
+                "level": report.level,
+                "task_id": task_id,
+            })
         except Exception as e:
             logger.error(f"Error getting research state: {e}", exc_info=True)
             return OperationStatus.error(task_id, str(e)).to_json()
@@ -978,6 +1011,7 @@ def _register_research_delete_report(mcp: FastMCP, config: MCPToolsConfig) -> No
 
         try:
             async with AsyncSessionLocal() as session:
+                await _set_search_path(session, config)
                 result = await session.execute(
                     select(ResearchReport).where(
                         ResearchReport.id == report_id,
@@ -1173,6 +1207,7 @@ def _register_operation_list(mcp: FastMCP, config: MCPToolsConfig) -> None:
 
         try:
             async with AsyncSessionLocal() as session:
+                await _set_search_path(session, config)
                 # Get recent blackboards
                 bb_result = await session.execute(
                     select(BlackboardData)
@@ -1246,7 +1281,11 @@ def _register_operation_get_status(mcp: FastMCP, config: MCPToolsConfig) -> None
             return OperationStatus.error(task_id, "Unauthorized").to_json()
 
         try:
-            status = await get_operation_status(task_id)
+            status = await get_operation_status(
+                task_id,
+                user_id=user_id,
+                org_schema=config.org_schema_resolver(),
+            )
             return status.to_json()
         except Exception as e:
             logger.error(f"Error getting operation status: {e}", exc_info=True)

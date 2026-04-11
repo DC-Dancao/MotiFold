@@ -1,19 +1,21 @@
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import desc
 from typing import List
 
 from app.llm.checkpointer import get_checkpointer
-from app.core.database import get_db
+from app.core.database import get_db, get_db_with_schema
 from app.auth.models import User
 from app.chat.models import Chat
 from app.workspace.models import Workspace
 from app.chat.schemas import ChatOut, MessageCreate, MessageOut, ChatCreate
 from app.core.security import get_current_user, get_current_user_from_query
 from app.chat.agent import get_workflow
+from app.org.dependencies import get_current_org_membership
+from app.tenant.context import get_current_org
 
 router = APIRouter()
 
@@ -21,11 +23,14 @@ TITLE_EVENT_PREFIX = "[TITLE]"
 
 @router.get("/", response_model=List[ChatOut])
 async def list_chats(
+    request: Request,
     workspace_id: int | None = None,
-    skip: int = 0, limit: int = 20, 
-    db: AsyncSession = Depends(get_db), 
-    current_user: User = Depends(get_current_user)
+    skip: int = 0, limit: int = 20,
+    db: AsyncSession = Depends(get_db_with_schema),
+    current_user: User = Depends(get_current_user),
+    membership = Depends(get_current_org_membership),
 ):
+    org_slug = get_current_org()
     query = select(Chat).where(Chat.user_id == current_user.id)
     if workspace_id is not None:
         query = query.where(Chat.workspace_id == workspace_id)
@@ -36,17 +41,19 @@ async def list_chats(
 
 @router.post("/", response_model=ChatOut)
 async def create_chat(
+    request: Request,
     chat_data: ChatCreate | None = None,
-    db: AsyncSession = Depends(get_db), 
-    current_user: User = Depends(get_current_user)
+    db: AsyncSession = Depends(get_db_with_schema),
+    current_user: User = Depends(get_current_user),
+    membership = Depends(get_current_org_membership),
 ):
     workspace_id = chat_data.workspace_id if chat_data else None
     if workspace_id is not None:
-        # Verify workspace belongs to user
-        result = await db.execute(select(Workspace).where(Workspace.id == workspace_id, Workspace.user_id == current_user.id))
+        # Verify workspace exists in this org
+        result = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
         if not result.scalars().first():
             raise HTTPException(status_code=404, detail="Workspace not found")
-            
+
     new_chat = Chat(user_id=current_user.id, workspace_id=workspace_id, title="New Chat")
     db.add(new_chat)
     await db.commit()
@@ -55,9 +62,11 @@ async def create_chat(
 
 @router.get("/{chat_id}", response_model=ChatOut)
 async def get_chat(
-    chat_id: int, 
-    db: AsyncSession = Depends(get_db), 
-    current_user: User = Depends(get_current_user)
+    request: Request,
+    chat_id: int,
+    db: AsyncSession = Depends(get_db_with_schema),
+    current_user: User = Depends(get_current_user),
+    membership = Depends(get_current_org_membership),
 ):
     result = await db.execute(select(Chat).where(Chat.id == chat_id, Chat.user_id == current_user.id))
     chat = result.scalars().first()
@@ -67,27 +76,30 @@ async def get_chat(
 
 @router.delete("/{chat_id}")
 async def delete_chat(
-    chat_id: int, 
-    db: AsyncSession = Depends(get_db), 
-    current_user: User = Depends(get_current_user)
+    request: Request,
+    chat_id: int,
+    db: AsyncSession = Depends(get_db_with_schema),
+    current_user: User = Depends(get_current_user),
+    membership = Depends(get_current_org_membership),
 ):
     result = await db.execute(select(Chat).where(Chat.id == chat_id, Chat.user_id == current_user.id))
     chat = result.scalars().first()
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
-    
+
     await db.delete(chat)
     await db.commit()
     return {"status": "success", "message": "Chat deleted"}
 
 @router.get("/{chat_id}/messages", response_model=List[MessageOut])
 async def get_messages(
-    chat_id: int, 
-    skip: int = 0, limit: int = 50, 
-    db: AsyncSession = Depends(get_db), 
-    current_user: User = Depends(get_current_user)
+    request: Request,
+    chat_id: int,
+    skip: int = 0, limit: int = 50,
+    db: AsyncSession = Depends(get_db_with_schema),
+    current_user: User = Depends(get_current_user),
+    membership = Depends(get_current_org_membership),
 ):
-    # Verify chat ownership
     result = await db.execute(select(Chat).where(Chat.id == chat_id, Chat.user_id == current_user.id))
     chat = result.scalars().first()
     if not chat:
@@ -98,7 +110,7 @@ async def get_messages(
         app = get_workflow(checkpointer)
         config = {"configurable": {"thread_id": str(chat_id)}}
         state = await app.aget_state(config)
-        
+
         if state and state.values:
             langchain_messages = state.values.get("messages", [])
             for msg in langchain_messages:
@@ -108,9 +120,9 @@ async def get_messages(
                     chat_id=chat_id,
                     role=role,
                     content=msg.content,
-                    created_at=chat.created_at # Mock timestamp since Langchain doesn't store it
+                    created_at=chat.created_at
                 ))
-    
+
     return messages[skip: skip + limit]
 
 from fastapi.responses import StreamingResponse
@@ -121,31 +133,33 @@ redis_client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
 
 @router.post("/{chat_id}/messages")
 async def send_message(
-    chat_id: int, 
-    message: MessageCreate, 
-    db: AsyncSession = Depends(get_db), 
-    current_user: User = Depends(get_current_user)
+    request: Request,
+    chat_id: int,
+    message: MessageCreate,
+    db: AsyncSession = Depends(get_db_with_schema),
+    current_user: User = Depends(get_current_user),
+    membership = Depends(get_current_org_membership),
 ):
-    # Verify chat
     result = await db.execute(select(Chat).where(Chat.id == chat_id, Chat.user_id == current_user.id))
     chat = result.scalars().first()
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
 
-    # Enqueue task to Celery
     from app.worker.chat_tasks import process_message
     await redis_client.setex(f"chat_processing_{chat_id}", 300, "1")
-    process_message.delay(chat_id, message.content)
+    org_schema = getattr(request.state, 'org_schema', None)
+    process_message.delay(chat_id, message.content, org_schema)
 
     return {"status": "processing", "stream_url": f"/chats/{chat_id}/stream"}
 
 @router.get("/{chat_id}/stream")
 async def stream_chat(
-    chat_id: int, 
-    db: AsyncSession = Depends(get_db), 
-    current_user: User = Depends(get_current_user_from_query)
+    request: Request,
+    chat_id: int,
+    db: AsyncSession = Depends(get_db_with_schema),
+    current_user: User = Depends(get_current_user_from_query),
+    membership = Depends(get_current_org_membership),
 ):
-    # Verify chat
     result = await db.execute(select(Chat).where(Chat.id == chat_id, Chat.user_id == current_user.id))
     if not result.scalars().first():
         raise HTTPException(status_code=404, detail="Chat not found")
@@ -161,16 +175,14 @@ async def stream_chat(
             app = get_workflow(checkpointer)
             config = {"configurable": {"thread_id": str(chat_id)}}
             state = await app.aget_state(config)
-            
+
             if state and state.values:
                 messages = state.values.get("messages", [])
                 if not is_processing:
                     if messages and messages[-1].type == "ai":
-                        # Already processed, yield the final answer
                         yield f"data: {json.dumps(messages[-1].content)}\n\n"
                         yield "data: [DONE]\n\n"
                     elif messages:
-                        # Task is dead, and no AI message was generated
                         yield f"data: {json.dumps('[Error: Message generation failed or was interrupted]')}\n\n"
                         yield "data: [DONE]\n\n"
                     await pubsub.unsubscribe(channel)

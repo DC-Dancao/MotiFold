@@ -3,7 +3,7 @@ import logging
 import asyncio
 import redis
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 
 from app.core.config import settings
 from app.chat.models import Chat
@@ -164,8 +164,11 @@ def update_chat_title(chat_id: int, first_message: str, db=None, publish: bool =
             session.close()
 
 @celery_app.task(name="process_message")
-def process_message(chat_id: int, content: str):
+def process_message(chat_id: int, content: str, org_schema: str | None = None):
     db = SessionLocal()
+    # Set search_path to org schema if provided
+    if org_schema:
+        db.execute(text(f'SET search_path TO "{org_schema}", public'))
     try:
         # Load history
         chat = db.query(Chat).filter(Chat.id == chat_id).first()

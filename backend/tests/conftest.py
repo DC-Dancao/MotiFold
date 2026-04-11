@@ -117,6 +117,16 @@ async def test_user(db_session):
     return user
 
 @pytest_asyncio.fixture
+async def other_user(db_session):
+    """
+    Create a second test user for tests requiring multiple users.
+    """
+    user = User(username="otheruser", password_hash="fakehash")
+    db_session.add(user)
+    await db_session.flush()
+    return user
+
+@pytest_asyncio.fixture
 async def auth_client(async_client, test_user):
     """
     自动注入当前测试用户的客户端。

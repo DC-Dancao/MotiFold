@@ -5,6 +5,7 @@ from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.orm import declarative_base
+from starlette.requests import Request
 
 from app.core.config import settings
 
@@ -42,4 +43,14 @@ async def ensure_schema_ready() -> None:
 
 async def get_db():
     async with AsyncSessionLocal() as session:
+        yield session
+
+
+async def get_db_with_schema(request: Request):
+    """Get DB session with search_path set to org schema if applicable."""
+    org_schema = getattr(request.state, 'org_schema', None)
+    async with AsyncSessionLocal() as session:
+        if org_schema:
+            from sqlalchemy import text
+            await session.execute(text(f'SET search_path TO "{org_schema}", public'))
         yield session

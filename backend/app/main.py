@@ -15,6 +15,8 @@ from app.matrix.router import router as matrix_router
 from app.notification.router import router as notification_router
 from app.blackboard.router import router as blackboard_router
 from app.research.router import router as research_router
+from app.tenant.middleware import TenantMiddleware
+from app.org.router import router as org_router
 from app.mcp.server import MCPMiddleware
 from app.memory.router import router as memory_router
 
@@ -47,6 +49,9 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="Motifold Chat MVP", lifespan=lifespan)
 
+# Add Tenant Middleware (must be first)
+app.add_middleware(TenantMiddleware)
+
 # Add MCP Middleware (it intercepts /mcp)
 app.add_middleware(MCPMiddleware, prefix="/mcp")
 
@@ -59,6 +64,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
+app.include_router(org_router, prefix="/api/orgs", tags=["organizations"])
 app.include_router(workspace_router, prefix="/workspaces", tags=["workspaces"])
 app.include_router(chat_router, prefix="/chats", tags=["chats"])
 app.include_router(matrix_router)

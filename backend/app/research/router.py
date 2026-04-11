@@ -6,14 +6,15 @@ import json
 import uuid
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.auth.models import User
-from app.core.database import get_db, AsyncSessionLocal
+from app.core.database import get_db, get_db_with_schema, AsyncSessionLocal
 from app.core.security import get_current_user
+from app.org.dependencies import get_current_org_membership
 from app.research.models import ResearchReport
 from app.research.schemas import (
     ResearchHistoryItem,
@@ -42,8 +43,11 @@ router = APIRouter(prefix="/research", tags=["research"])
 
 @router.post("/", response_model=ResearchStatus)
 async def start_research(
+    request: Request,
     data: ResearchStart,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_with_schema),
+    membership = Depends(get_current_org_membership),
 ):
     """
     Start a new deep research task.
@@ -61,24 +65,24 @@ async def start_research(
 
     # Immediately create a DB record so task appears in history
     try:
-        async with AsyncSessionLocal() as db:
-            report = ResearchReport(
-                user_id=current_user.id,
-                query=data.query,
-                level=level.value,
-                status="running",
-                task_id=task_id,
-                notes_json="[]",
-                queries_json="[]",
-                iterations=max_iters,
-            )
-            db.add(report)
-            await db.commit()
+        report = ResearchReport(
+            user_id=current_user.id,
+            query=data.query,
+            level=level.value,
+            status="running",
+            task_id=task_id,
+            notes_json="[]",
+            queries_json="[]",
+            iterations=max_iters,
+        )
+        db.add(report)
+        await db.commit()
     except Exception as e:
         import logging
         logging.getLogger(__name__).error(f"Failed to create initial research record: {e}")
 
-    # Enqueue Celery task with user_id for proper save
+    # Enqueue Celery task with user_id and org context for proper save
+    org_schema = getattr(request.state, 'org_schema', None)
     from app.research.tasks import process_research
     process_research.delay(
         task_id=task_id,
@@ -87,6 +91,7 @@ async def start_research(
         max_iterations=max_iters,
         max_results=max_res,
         user_id=current_user.id,
+        org_schema=org_schema,
     )
 
     return ResearchStatus(
@@ -101,12 +106,25 @@ async def start_research(
 
 @router.get("/{task_id}/stream")
 async def stream_research(
+    request: Request,
     task_id: str,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_with_schema),
+    membership = Depends(get_current_org_membership),
 ):
     """
     SSE stream of research progress events.
     """
+    # Verify task belongs to a user in this org before streaming
+    stmt = select(ResearchReport).where(
+        ResearchReport.task_id == task_id,
+        ResearchReport.user_id == current_user.id,
+    )
+    result = await db.execute(stmt)
+    report = result.scalars().first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Research not found")
+
     async def event_generator():
         redis = await get_redis()
         pubsub = redis.pubsub()
@@ -161,8 +179,11 @@ async def stream_research(
 
 @router.get("/{task_id}/state", response_model=ResearchRunningState)
 async def get_research_state_endpoint(
+    request: Request,
     task_id: str,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_with_schema),
+    membership = Depends(get_current_org_membership),
 ):
     """
     Get persisted state for a running research task (for rejoin).
@@ -178,9 +199,8 @@ async def get_research_state_endpoint(
         ResearchReport.task_id == task_id,
         ResearchReport.user_id == current_user.id,
     )
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(stmt)
-        report = result.scalars().first()
+    result = await db.execute(stmt)
+    report = result.scalars().first()
 
     if not report:
         raise HTTPException(status_code=404, detail="Research not found")
@@ -200,12 +220,25 @@ async def get_research_state_endpoint(
 
 @router.get("/{task_id}/result", response_model=ResearchResult)
 async def get_result(
+    request: Request,
     task_id: str,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_with_schema),
+    membership = Depends(get_current_org_membership),
 ):
     """
     Get the final research result (after completion).
     """
+    # Verify task belongs to a user in this org
+    stmt = select(ResearchReport).where(
+        ResearchReport.task_id == task_id,
+        ResearchReport.user_id == current_user.id,
+    )
+    result = await db.execute(stmt)
+    report = result.scalars().first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Research result not found")
+
     redis = await get_redis()
     key = f"research_result_{task_id}"
     result_json = await redis.get(key)
@@ -219,8 +252,10 @@ async def get_result(
 
 @router.get("/history", response_model=List[ResearchHistoryItem])
 async def get_research_history(
+    request: Request,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_with_schema),
+    membership = Depends(get_current_org_membership),
 ):
     """Get all saved research reports for the current user."""
     stmt = select(ResearchReport).where(
@@ -248,9 +283,11 @@ async def get_research_history(
 
 @router.get("/{report_id}", response_model=ResearchReportSchema)
 async def get_research_report(
+    request: Request,
     report_id: int,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_with_schema),
+    membership = Depends(get_current_org_membership),
 ):
     """Get a specific research report."""
     stmt = select(ResearchReport).where(
@@ -281,9 +318,11 @@ async def get_research_report(
 
 @router.delete("/{report_id}")
 async def delete_research_report(
+    request: Request,
     report_id: int,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_with_schema),
+    membership = Depends(get_current_org_membership),
 ):
     """Delete a research report."""
     stmt = select(ResearchReport).where(
@@ -308,8 +347,11 @@ async def delete_research_report(
 
 @router.post("/start", response_model=ResearchStartResponse)
 async def start_research_v2(
+    request: Request,
     data: ResearchStartLoop,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_with_schema),
+    membership = Depends(get_current_org_membership),
 ):
     """
     Start a new deep research session with confirmation loop.
@@ -339,19 +381,18 @@ async def start_research_v2(
 
     # Create DB record immediately so task appears in history
     try:
-        async with AsyncSessionLocal() as db:
-            report = ResearchReport(
-                user_id=current_user.id,
-                query=data.topic,
-                level=level.value,
-                status="running",
-                task_id=task_id,
-                notes_json="[]",
-                queries_json="[]",
-                iterations=max_iters,
-            )
-            db.add(report)
-            await db.commit()
+        report = ResearchReport(
+            user_id=current_user.id,
+            query=data.topic,
+            level=level.value,
+            status="running",
+            task_id=task_id,
+            notes_json="[]",
+            queries_json="[]",
+            iterations=max_iters,
+        )
+        db.add(report)
+        await db.commit()
     except Exception as e:
         import logging
         logging.getLogger(__name__).error(f"Failed to create initial research record: {e}")
@@ -359,6 +400,7 @@ async def start_research_v2(
     # Enqueue Celery task to run the research loop
     # The task will run the graph until interrupt, then exit
     # State is persisted via MemorySaver checkpointer
+    org_schema = getattr(request.state, 'org_schema', None)
     process_research_loop.delay(
         task_id=task_id,
         thread_id=thread_id,
@@ -367,6 +409,7 @@ async def start_research_v2(
         max_iterations=max_iters,
         max_results=max_res,
         user_id=current_user.id,
+        org_schema=org_schema,
     )
 
     return ResearchStartResponse(thread_id=thread_id)
@@ -374,9 +417,12 @@ async def start_research_v2(
 
 @router.post("/resume/{thread_id}", response_model=ResumeResponse)
 async def resume_research(
+    request: Request,
     thread_id: str,
     data: ResumeRequest,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_with_schema),
+    membership = Depends(get_current_org_membership),
 ):
     """
     Resume a research session after user action.
@@ -395,10 +441,12 @@ async def resume_research(
 
     # Enqueue Celery task to resume the research
     # The task will call graph.invoke(Command(resume=action), config)
+    org_schema = getattr(request.state, 'org_schema', None)
     resume_research_task.delay(
         task_id=task_id,
         thread_id=thread_id,
         action=data.action,
+        org_schema=org_schema,
     )
 
     return ResumeResponse(status="resumed")
@@ -406,8 +454,11 @@ async def resume_research(
 
 @router.get("/stream/{thread_id}")
 async def stream_research_loop(
+    request: Request,
     thread_id: str,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_with_schema),
+    membership = Depends(get_current_org_membership),
 ):
     """
     SSE stream for research with confirmation loop.

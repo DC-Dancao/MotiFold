@@ -43,9 +43,24 @@ const isRefreshRequest = (url: string) => {
 };
 
 export const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
+  // Get current org from localStorage
+  const currentOrgId = typeof window !== 'undefined'
+    ? localStorage.getItem('motifold_current_org_id')
+    : null;
+
+  const headers: HeadersInit = {
+    ...options.headers,
+  };
+
+  // Add X-Org-ID header if set and not an auth request
+  if (currentOrgId && !url.includes('/auth/')) {
+    headers['X-Org-ID'] = currentOrgId;
+  }
+
   const finalOptions: RequestInit = {
     ...options,
-    credentials: 'include'
+    credentials: 'include',
+    headers,
   };
 
   const response = await fetch(url, finalOptions);

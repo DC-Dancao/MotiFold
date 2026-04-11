@@ -29,7 +29,6 @@ def get_postgres_checkpointer() -> AsyncPostgresSaver:
     Get or create the Postgres checkpointer.
     Uses lru_cache to ensure only one instance is created.
     """
-    settings = get_settings()
     # Use asyncpg connection pool from our database config
     checkpointer = AsyncPostgresSaver.from_conn_string(settings.DATABASE_URL.replace("+asyncpg", ""))
     return checkpointer
@@ -43,6 +42,7 @@ def process_research(
     max_iterations: int | None,
     max_results: int | None,
     user_id: int | None = None,
+    org_schema: str | None = None,
 ):
     """
     Run the deep research agent for a given query.
@@ -169,7 +169,10 @@ def process_research(
         saved_report_id = None
         try:
             async with AsyncSessionLocal() as db:
-                from sqlalchemy import update, select
+                from sqlalchemy import update, select, text
+                # Set search_path to org schema if provided
+                if org_schema:
+                    await db.execute(text(f'SET search_path TO "{org_schema}", public'))
                 # Update the existing record (created when task started)
                 stmt = (
                     update(ResearchReport)
@@ -243,11 +246,12 @@ def process_research_loop(
     max_iterations: int | None,
     max_results: int | None,
     user_id: int | None = None,
+    org_schema: str | None = None,
 ):
     """
     Start the research graph for the confirmation loop.
     Runs until interrupt() is called, then exits.
-    State is persisted via MemorySaver checkpointer.
+    State is persisted via Postgres checkpointer.
     Publishes events to research_stream_{thread_id} for SSE streaming.
     """
     async def _run():
@@ -341,7 +345,9 @@ def process_research_loop(
         # Update DB record on completion
         try:
             async with AsyncSessionLocal() as db:
-                from sqlalchemy import update
+                from sqlalchemy import update, text
+                if org_schema:
+                    await db.execute(text(f'SET search_path TO "{org_schema}", public'))
                 stmt = (
                     update(ResearchReport)
                     .where(ResearchReport.task_id == task_id)
@@ -369,6 +375,7 @@ def resume_research_task(
     task_id: str,
     thread_id: str,
     action: str | dict,
+    org_schema: str | None = None,
 ):
     """
     Resume a research graph after user action.
@@ -407,7 +414,9 @@ def resume_research_task(
 
             try:
                 async with AsyncSessionLocal() as db:
-                    from sqlalchemy import update
+                    from sqlalchemy import update, text
+                    if org_schema:
+                        await db.execute(text(f'SET search_path TO "{org_schema}", public'))
                     stmt = (
                         update(ResearchReport)
                         .where(ResearchReport.task_id == task_id)

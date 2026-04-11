@@ -1,12 +1,15 @@
 import json
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from typing import List, Optional
 from sqlalchemy.future import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
+from app.core.database import get_db, get_db_with_schema
 from app.core.security import get_current_user
 from app.blackboard.models import BlackboardData
 from app.blackboard.schemas import BlackboardCreate, BlackboardResponse
+from app.org.dependencies import get_current_org_membership
+from app.tenant.context import get_current_org
 
 router = APIRouter(
     prefix="/blackboard",
@@ -15,7 +18,13 @@ router = APIRouter(
 )
 
 @router.post("/", response_model=BlackboardResponse)
-async def create_blackboard(bb_create: BlackboardCreate, db=Depends(get_db), current_user=Depends(get_current_user)):
+async def create_blackboard(
+    bb_create: BlackboardCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db_with_schema),
+    current_user = Depends(get_current_user),
+    membership = Depends(get_current_org_membership),
+):
     """
     创建一个新的黑板生成任务
     """
@@ -29,11 +38,11 @@ async def create_blackboard(bb_create: BlackboardCreate, db=Depends(get_db), cur
     db.add(new_bb)
     await db.commit()
     await db.refresh(new_bb)
-    
-    # Trigger Celery Task
+
     from app.worker.blackboard_tasks import generate_blackboard_task
-    generate_blackboard_task.delay(new_bb.id, bb_create.topic)
-    
+    org_schema = getattr(request.state, 'org_schema', None)
+    generate_blackboard_task.delay(new_bb.id, bb_create.topic, org_schema)
+
     return BlackboardResponse(
         id=new_bb.id,
         topic=new_bb.topic,
@@ -44,21 +53,23 @@ async def create_blackboard(bb_create: BlackboardCreate, db=Depends(get_db), cur
 
 @router.get("/history", response_model=List[BlackboardResponse])
 async def get_blackboard_history(
-    workspace_id: Optional[int] = None, 
-    db=Depends(get_db), 
-    current_user=Depends(get_current_user)
+    request: Request,
+    workspace_id: Optional[int] = None,
+    db: AsyncSession = Depends(get_db_with_schema),
+    current_user = Depends(get_current_user),
+    membership = Depends(get_current_org_membership),
 ):
     """
     获取用户的黑板历史记录
     """
-    query = select(BlackboardData).filter(BlackboardData.user_id == current_user.id)
+    query = select(BlackboardData)
     if workspace_id:
         query = query.filter(BlackboardData.workspace_id == workspace_id)
-        
+
     query = query.order_by(BlackboardData.created_at.desc())
     result = await db.execute(query)
     records = result.scalars().all()
-    
+
     return [
         BlackboardResponse(
             id=r.id,
@@ -70,17 +81,23 @@ async def get_blackboard_history(
     ]
 
 @router.get("/{bb_id}", response_model=BlackboardResponse)
-async def get_blackboard(bb_id: int, db=Depends(get_db), current_user=Depends(get_current_user)):
+async def get_blackboard(
+    bb_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db_with_schema),
+    current_user = Depends(get_current_user),
+    membership = Depends(get_current_org_membership),
+):
     """
     获取单个黑板的详细数据
     """
-    query = select(BlackboardData).filter(BlackboardData.id == bb_id, BlackboardData.user_id == current_user.id)
+    query = select(BlackboardData).filter(BlackboardData.id == bb_id)
     result = await db.execute(query)
     bb = result.scalars().first()
-    
+
     if not bb:
         raise HTTPException(status_code=404, detail="Blackboard not found")
-        
+
     return BlackboardResponse(
         id=bb.id,
         topic=bb.topic,
@@ -90,17 +107,23 @@ async def get_blackboard(bb_id: int, db=Depends(get_db), current_user=Depends(ge
     )
 
 @router.delete("/{bb_id}")
-async def delete_blackboard(bb_id: int, db=Depends(get_db), current_user=Depends(get_current_user)):
+async def delete_blackboard(
+    bb_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db_with_schema),
+    current_user = Depends(get_current_user),
+    membership = Depends(get_current_org_membership),
+):
     """
     删除黑板记录
     """
-    query = select(BlackboardData).filter(BlackboardData.id == bb_id, BlackboardData.user_id == current_user.id)
+    query = select(BlackboardData).filter(BlackboardData.id == bb_id)
     result = await db.execute(query)
     bb = result.scalars().first()
-    
+
     if not bb:
         raise HTTPException(status_code=404, detail="Blackboard not found")
-        
+
     await db.delete(bb)
     await db.commit()
     return {"message": "Deleted successfully"}
