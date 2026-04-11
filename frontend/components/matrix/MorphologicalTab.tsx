@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Sparkles, Loader2, RefreshCw, Save, Trash2, FolderOpen, Maximize2, Minimize2 } from 'lucide-react';
 import ReactECharts from 'echarts-for-react';
@@ -51,6 +51,7 @@ export default function MorphologicalTab() {
   const [currentAnalysisId, setCurrentAnalysisId] = useState<number | null>(null);
   const [matrixEventSource, setMatrixEventSource] = useState<EventSource | null>(null);
   const [sseRetryCount, setSseRetryCount] = useState(0);
+  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const maxStatesCount = useMemo(() => {
     return Math.max(...parameters.map(p => p.states.length), 0);
@@ -493,7 +494,12 @@ export default function MorphologicalTab() {
     };
 
     es.onerror = () => {
-      setMatrixEventSource(null);
+      // Clear any pending retry
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
+      }
+
       es.close();
 
       // Only retry if still in a state that needs SSE
@@ -502,19 +508,28 @@ export default function MorphologicalTab() {
           (analysisStatus === 'generating_parameters' || analysisStatus === 'evaluating_matrix')) {
         const delay = Math.min(1000 * Math.pow(2, sseRetryCount), 30000);
         setSseRetryCount(prev => prev + 1);
-        setTimeout(() => {
-          // Force re-render to trigger reconnection
+
+        retryTimeoutRef.current = setTimeout(() => {
+          // Close current and trigger reconnection by clearing the event source
+          es.close();
           setMatrixEventSource(null);
         }, delay);
+        return; // Don't set matrixEventSource to null if retrying
       }
+
+      setMatrixEventSource(null);
     };
 
     // Cleanup on unmount or when currentAnalysisId changes
     return () => {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
+      }
       es.close();
       setMatrixEventSource(null);
     };
-  }, [currentAnalysisId, analysisStatus, sseRetryCount]);
+  }, [currentAnalysisId, analysisStatus]);
 
   // Reset SSE retry count when currentAnalysisId changes
   useEffect(() => {
