@@ -25,8 +25,6 @@ sync_db_url = settings.DATABASE_URL.replace("postgresql+asyncpg", "postgresql")
 engine = create_engine(sync_db_url)
 SessionLocal = sessionmaker(bind=engine)
 
-redis_client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
-
 
 @celery_app.task(name="generate_morphological_task")
 def generate_morphological_task(analysis_id: int):
@@ -145,6 +143,7 @@ def generate_morphological_task(analysis_id: int):
             await clear_processing_flag(analysis_id)
 
         # Publish global notification for cross-tab sync
+        redis_client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
         channel = f"user_notifications_{user_id}"
         notification = {
             "type": "morphological_analysis",
@@ -158,6 +157,7 @@ def generate_morphological_task(analysis_id: int):
             "link": f"/matrix?analysis_id={analysis_id}"
         }
         redis_client.publish(channel, json.dumps(notification))
+        redis_client.close()
 
     asyncio.run(_run())
 
@@ -283,6 +283,7 @@ def evaluate_consistency_task(analysis_id: int):
             await clear_processing_flag(analysis_id)
 
         # Publish global notification for cross-tab sync
+        redis_client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
         channel = f"user_notifications_{user_id}"
         notification = {
             "type": "morphological_analysis",
@@ -296,5 +297,6 @@ def evaluate_consistency_task(analysis_id: int):
             "link": f"/matrix?analysis_id={analysis_id}"
         }
         redis_client.publish(channel, json.dumps(notification))
+        redis_client.close()
 
     asyncio.run(_run())

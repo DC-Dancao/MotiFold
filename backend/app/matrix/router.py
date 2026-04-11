@@ -259,14 +259,25 @@ async def delete_morphological_analysis(
     return {"status": "success"}
 
 
-@router.post("/morphological/{analysis_id}/stream")
+@router.get("/morphological/{analysis_id}/stream")
 async def stream_morphological_analysis(
     analysis_id: int,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     SSE stream of morphological analysis progress events.
     """
+    # Verify ownership before streaming
+    stmt = select(MorphologicalAnalysis).where(
+        MorphologicalAnalysis.id == analysis_id,
+        MorphologicalAnalysis.user_id == current_user.id,
+    )
+    result = await db.execute(stmt)
+    analysis = result.scalars().first()
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+
     async def event_generator():
         redis = await get_redis()
         pubsub = redis.pubsub()
@@ -276,7 +287,7 @@ async def stream_morphological_analysis(
 
         # Emit persisted state first so reconnected clients see full progress
         if is_processing:
-            redis_state = None
+            redis_state = await get_matrix_state(analysis_id)
             if redis_state:
                 yield f"data: {json.dumps({'type': 'rejoin', **redis_state})}\n\n"
 
