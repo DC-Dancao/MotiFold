@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
+import { resolveServerApiUrl } from './app/lib/api-base';
+
 function isTokenExpired(token: string) {
   try {
     const payload = JSON.parse(atob(token.split('.')[1]));
@@ -41,7 +43,7 @@ export async function proxy(req: NextRequest) {
   }
 
   // Need to refresh
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:18000';
+  const apiUrl = resolveServerApiUrl();
   try {
     const refreshRes = await fetch(`${apiUrl}/auth/refresh`, {
       method: 'POST',

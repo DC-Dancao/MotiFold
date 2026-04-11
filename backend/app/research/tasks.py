@@ -5,33 +5,31 @@ Celery tasks for Deep Research.
 import asyncio
 import json
 import logging
-from functools import lru_cache
 
 import redis
 from langchain_core.messages import HumanMessage
-from langgraph.checkpoint.postgres import AsyncPostgresSaver
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.types import Command
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.llm.checkpointer import SYNC_DB_URL, ensure_checkpointer_ready
 from app.research.agent import build_graph, level_defaults_for
 from app.research.models import ResearchReport
 from app.research.state import ResearchLevel
 from app.research.stream import clear_processing_flag, publish_event, set_processing_flag, save_research_state
 from app.worker import celery_app
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
 
 logger = logging.getLogger(__name__)
 
 
-@lru_cache()
-def get_postgres_checkpointer() -> AsyncPostgresSaver:
-    """
-    Get or create the Postgres checkpointer.
-    Uses lru_cache to ensure only one instance is created.
-    """
-    # Use asyncpg connection pool from our database config
-    checkpointer = AsyncPostgresSaver.from_conn_string(settings.DATABASE_URL.replace("+asyncpg", ""))
-    return checkpointer
+@asynccontextmanager
+async def get_postgres_checkpointer() -> AsyncIterator[AsyncPostgresSaver]:
+    await ensure_checkpointer_ready()
+    async with AsyncPostgresSaver.from_conn_string(SYNC_DB_URL) as checkpointer:
+        yield checkpointer
 
 
 @celery_app.task(name="process_research")
@@ -42,7 +40,6 @@ def process_research(
     max_iterations: int | None,
     max_results: int | None,
     user_id: int | None = None,
-    org_schema: str | None = None,
 ):
     """
     Run the deep research agent for a given query.
@@ -75,76 +72,76 @@ def process_research(
             "task_id": task_id,
         })
 
-        # Build graph with Postgres checkpointer for persistence
-        graph = build_graph(checkpointer=get_postgres_checkpointer())
+        async with get_postgres_checkpointer() as checkpointer:
+            graph = build_graph(checkpointer=checkpointer)
 
-        # Initial state
-        initial_state = {
-            "messages": [HumanMessage(content=query)],
-            "research_topic": "",
-            "search_queries": [],
-            "search_results": [],
-            "notes": [],
-            "final_report": "",
-            "iterations": 0,
-            "max_iterations": effective_iters,
-            "max_results": effective_res,
-            "research_level": research_level,
-        }
+            # Initial state
+            initial_state = {
+                "messages": [HumanMessage(content=query)],
+                "research_topic": "",
+                "search_queries": [],
+                "search_results": [],
+                "notes": [],
+                "final_report": "",
+                "iterations": 0,
+                "max_iterations": effective_iters,
+                "max_results": effective_res,
+                "research_level": research_level,
+            }
 
-        # Pass task_id through config so nodes can emit SSE events
-        config = {
-            "configurable": {"thread_id": f"research_{task_id}", "task_id": task_id},
-        }
+            # Pass task_id through config so nodes can emit SSE events
+            config = {
+                "configurable": {"thread_id": f"research_{task_id}", "task_id": task_id},
+            }
 
-        final_state = None
-        error_msg = None
-        try:
-            async for event in graph.astream(initial_state, config):
-                # Track the final state from the last event
-                final_state = event
-                # Persist accumulated state to Redis
-                current_topic = ""
-                current_notes = []
-                current_queries = []
-                if final_state:
-                    for node_data in final_state.values():
-                        if isinstance(node_data, dict):
-                            if node_data.get("research_topic"):
-                                current_topic = node_data["research_topic"]
-                            if node_data.get("notes"):
-                                current_notes = node_data["notes"]
-                            if node_data.get("search_queries"):
-                                current_queries = node_data["search_queries"]
+            final_state = None
+            error_msg = None
+            try:
+                async for event in graph.astream(initial_state, config):
+                    # Track the final state from the last event
+                    final_state = event
+                    # Persist accumulated state to Redis
+                    current_topic = ""
+                    current_notes = []
+                    current_queries = []
+                    if final_state:
+                        for node_data in final_state.values():
+                            if isinstance(node_data, dict):
+                                if node_data.get("research_topic"):
+                                    current_topic = node_data["research_topic"]
+                                if node_data.get("notes"):
+                                    current_notes = node_data["notes"]
+                                if node_data.get("search_queries"):
+                                    current_queries = node_data["search_queries"]
+                    await save_research_state(task_id, {
+                        "status": "running",
+                        "message": "Research in progress",
+                        "progress": 0.5,
+                        "iteration": None,
+                        "research_topic": current_topic,
+                        "notes": current_notes,
+                        "queries": current_queries,
+                        "level": level,
+                        "task_id": task_id,
+                    })
+            except Exception as e:
+                logger.error(f"Research failed for task {task_id}: {e}")
+                error_msg = str(e)
+                await publish_event(task_id, {
+                    "type": "error",
+                    "message": str(e),
+                })
                 await save_research_state(task_id, {
-                    "status": "running",
-                    "message": "Research in progress",
-                    "progress": 0.5,
+                    "status": "error",
+                    "message": str(e),
+                    "progress": 0.0,
                     "iteration": None,
-                    "research_topic": current_topic,
-                    "notes": current_notes,
-                    "queries": current_queries,
+                    "research_topic": "",
+                    "notes": [],
+                    "queries": [],
                     "level": level,
                     "task_id": task_id,
                 })
-        except Exception as e:
-            logger.error(f"Research failed for task {task_id}: {e}")
-            error_msg = str(e)
-            await publish_event(task_id, {
-                "type": "error",
-                "message": str(e),
-            })
-            await save_research_state(task_id, {
-                "status": "error",
-                "message": str(e),
-                "progress": 0.0,
-                "iteration": None,
-                "research_topic": "",
-                "notes": [],
-                "queries": [],
-                "level": level,
-                "task_id": task_id,
-            })
 
         # Extract data from final state
         research_topic = ""
@@ -169,10 +166,7 @@ def process_research(
         saved_report_id = None
         try:
             async with AsyncSessionLocal() as db:
-                from sqlalchemy import update, select, text
-                # Set search_path to org schema if provided
-                if org_schema:
-                    await db.execute(text(f'SET search_path TO "{org_schema}", public'))
+                from sqlalchemy import update, select
                 # Update the existing record (created when task started)
                 stmt = (
                     update(ResearchReport)
@@ -246,12 +240,11 @@ def process_research_loop(
     max_iterations: int | None,
     max_results: int | None,
     user_id: int | None = None,
-    org_schema: str | None = None,
 ):
     """
     Start the research graph for the confirmation loop.
     Runs until interrupt() is called, then exits.
-    State is persisted via Postgres checkpointer.
+    State is persisted via MemorySaver checkpointer.
     Publishes events to research_stream_{thread_id} for SSE streaming.
     """
     async def _run():
@@ -269,64 +262,64 @@ def process_research_loop(
             "message": f"Starting {level} research (max_iter={effective_iters})...",
         })
 
-        # Build graph with Postgres checkpointer for persistence
-        graph = build_graph(checkpointer=get_postgres_checkpointer())
+        async with get_postgres_checkpointer() as checkpointer:
+            graph = build_graph(checkpointer=checkpointer)
 
-        # Initial state - note: uses thread_id as checkpointer key
-        initial_state = {
-            "messages": [HumanMessage(content=query)],
-            "research_topic": "",
-            "search_queries": [],
-            "search_results": [],
-            "notes": [],
-            "final_report": "",
-            "iterations": 0,
-            "max_iterations": effective_iters,
-            "max_results": effective_res,
-            "research_level": research_level,
-            # Confirmation loop fields
-            "needs_followup": False,
-            "followup_options": [],
-            "user_inputs": [],
-            "research_history": [],
-            "is_complete": False,
-        }
+            # Initial state - note: uses thread_id as checkpointer key
+            initial_state = {
+                "messages": [HumanMessage(content=query)],
+                "research_topic": "",
+                "search_queries": [],
+                "search_results": [],
+                "notes": [],
+                "final_report": "",
+                "iterations": 0,
+                "max_iterations": effective_iters,
+                "max_results": effective_res,
+                "research_level": research_level,
+                # Confirmation loop fields
+                "needs_followup": False,
+                "followup_options": [],
+                "user_inputs": [],
+                "research_history": [],
+                "is_complete": False,
+            }
 
-        # Use thread_id as the checkpointer key
-        config = {
-            "configurable": {"thread_id": thread_id, "task_id": task_id},
-        }
+            # Use thread_id as the checkpointer key
+            config = {
+                "configurable": {"thread_id": thread_id, "task_id": task_id},
+            }
 
-        final_state = None
-        try:
-            # Use ainvoke instead of astream to properly handle interrupts
-            # The graph will run until interrupt() is called, then exit
-            final_state = await graph.ainvoke(initial_state, config)
-        except Exception as e:
-            from langgraph.errors import GraphInterrupt
-            if isinstance(e, GraphInterrupt):
-                # This is expected - the graph was interrupted
-                # State is already saved in Postgres checkpointer, will be resumed later
-                logger.info(f"Research interrupted for task {task_id}, thread {thread_id}")
-            else:
-                logger.error(f"Research failed for task {task_id}: {e}")
-                await publish_event(thread_id, {
-                    "type": "error",
-                    "message": str(e),
-                })
-                await save_research_state(task_id, {
-                    "status": "error",
-                    "message": str(e),
-                    "progress": 0.0,
-                    "iteration": None,
-                    "research_topic": "",
-                    "notes": [],
-                    "queries": [],
-                    "level": level,
-                    "task_id": task_id,
-                })
-                await clear_processing_flag(task_id)
-                return
+            final_state = None
+            try:
+                # Use ainvoke instead of astream to properly handle interrupts
+                # The graph will run until interrupt() is called, then exit
+                final_state = await graph.ainvoke(initial_state, config)
+            except Exception as e:
+                from langgraph.errors import GraphInterrupt
+                if isinstance(e, GraphInterrupt):
+                    # This is expected - the graph was interrupted
+                    # State is already saved in Postgres checkpointer, will be resumed later
+                    logger.info(f"Research interrupted for task {task_id}, thread {thread_id}")
+                else:
+                    logger.error(f"Research failed for task {task_id}: {e}")
+                    await publish_event(thread_id, {
+                        "type": "error",
+                        "message": str(e),
+                    })
+                    await save_research_state(task_id, {
+                        "status": "error",
+                        "message": str(e),
+                        "progress": 0.0,
+                        "iteration": None,
+                        "research_topic": "",
+                        "notes": [],
+                        "queries": [],
+                        "level": level,
+                        "task_id": task_id,
+                    })
+                    await clear_processing_flag(task_id)
+                    return
 
         # If we get here, the graph ran to completion (no interrupt)
         # This happens when needs_followup=False and the graph finishes
@@ -345,9 +338,7 @@ def process_research_loop(
         # Update DB record on completion
         try:
             async with AsyncSessionLocal() as db:
-                from sqlalchemy import update, text
-                if org_schema:
-                    await db.execute(text(f'SET search_path TO "{org_schema}", public'))
+                from sqlalchemy import update
                 stmt = (
                     update(ResearchReport)
                     .where(ResearchReport.task_id == task_id)
@@ -375,7 +366,6 @@ def resume_research_task(
     task_id: str,
     thread_id: str,
     action: str | dict,
-    org_schema: str | None = None,
 ):
     """
     Resume a research graph after user action.
@@ -384,26 +374,26 @@ def resume_research_task(
     async def _run():
         logger.info(f"Resuming research for task {task_id}, thread {thread_id}, action={action}")
 
-        # Build graph with same Postgres checkpointer for persistence
-        graph = build_graph(checkpointer=get_postgres_checkpointer())
+        async with get_postgres_checkpointer() as checkpointer:
+            graph = build_graph(checkpointer=checkpointer)
 
-        # Config with thread_id as checkpointer key
-        config = {
-            "configurable": {"thread_id": thread_id, "task_id": task_id},
-        }
+            # Config with thread_id as checkpointer key
+            config = {
+                "configurable": {"thread_id": thread_id, "task_id": task_id},
+            }
 
-        final_state = None
-        try:
-            # Call invoke with Command(resume=action) to continue from interrupt
-            # The checkpointer will restore the saved state
-            final_state = await graph.ainvoke(Command(resume=action), config)
-            logger.info(f"Resume completed for task {task_id}, thread {thread_id}")
-        except Exception as e:
-            from langgraph.errors import GraphInterrupt
-            if isinstance(e, GraphInterrupt):
-                # This is expected - another interrupt occurred
-                logger.info(f"Research interrupted again for task {task_id}, thread {thread_id}")
-                return
+            final_state = None
+            try:
+                # Call invoke with Command(resume=action) to continue from interrupt
+                # The checkpointer will restore the saved state
+                final_state = await graph.ainvoke(Command(resume=action), config)
+                logger.info(f"Resume completed for task {task_id}, thread {thread_id}")
+            except Exception as e:
+                from langgraph.errors import GraphInterrupt
+                if isinstance(e, GraphInterrupt):
+                    # This is expected - another interrupt occurred
+                    logger.info(f"Research interrupted again for task {task_id}, thread {thread_id}")
+                    return
 
         # If we get here, the graph completed (e.g., confirm_done was selected)
         # Extract and save the final report
@@ -414,9 +404,7 @@ def resume_research_task(
 
             try:
                 async with AsyncSessionLocal() as db:
-                    from sqlalchemy import update, text
-                    if org_schema:
-                        await db.execute(text(f'SET search_path TO "{org_schema}", public'))
+                    from sqlalchemy import update
                     stmt = (
                         update(ResearchReport)
                         .where(ResearchReport.task_id == task_id)

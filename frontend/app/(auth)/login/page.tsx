@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Bot } from 'lucide-react';
 import { setAuthCookies } from '../../lib/auth-actions';
+import { resolveBrowserApiUrl } from '../../lib/api-base';
 
 export default function LoginPage() {
   const [isLogin, setIsLogin] = useState(true);
@@ -18,7 +19,7 @@ export default function LoginPage() {
     setError('');
     setIsLoading(true);
 
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:18000';
+    const apiUrl = resolveBrowserApiUrl();
 
     try {
       if (!isLogin) {
