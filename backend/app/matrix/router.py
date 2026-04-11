@@ -34,6 +34,7 @@ from app.matrix.schemas import (
 )
 from app.matrix.stream import (
     get_redis,
+    get_matrix_state,
     get_processing_status,
     subscribe_stream,
 )
