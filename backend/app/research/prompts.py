@@ -70,6 +70,54 @@ Produce a synthesized note that:
 Return JSON with keys: summary (str), key_excerpts (str)
 """
 
+FOLLOWUP_DECISION_PROMPT = """You are a deep research AI. After each research iteration, you must decide whether more follow-up research would be valuable.
+
+Research topic: {topic}
+Date: {date}
+
+Current research findings:
+{research_history}
+
+User inputs so far:
+{user_inputs}
+
+Decide if more follow-up research would add value. Consider:
+1. Are there gaps in the current research?
+2. Were there promising leads that weren't fully explored?
+3. Is the topic broad enough to warrant more investigation?
+4. Has the user requested specific areas to dig deeper into?
+
+Respond in JSON with keys:
+- needs_followup (bool): true if you recommend more research, false if the current findings are sufficient
+- question (str): a question presented to the user about what to explore next (only if needs_followup is true)
+- option_1 (str): first follow-up exploration direction
+- option_2 (str): second follow-up exploration direction
+- option_3 (str): third follow-up exploration direction
+
+If needs_followup is false, question and options will be ignored.
+"""
+
+FOLLOWUP_SEARCH_PROMPT = """Given the research topic, current findings, and user's follow-up input, generate new search queries to explore the requested direction.
+
+Research topic: {topic}
+Date: {date}
+
+Current research findings:
+{research_history}
+
+User's follow-up choice/input:
+{user_input}
+
+Generate 2-5 focused search queries that:
+1. Are directly informed by the user's follow-up choice
+2. Explore the specific direction or aspect the user indicated interest in
+3. Complement (not duplicate) the existing research
+4. Are self-contained and precise
+
+Return JSON with key: queries (list of strings)
+"""
+
+
 REPORT_PROMPT = """You are a research report writer. Given synthesized research notes, produce a comprehensive markdown report.
 
 Research topic: {topic}

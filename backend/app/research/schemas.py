@@ -2,9 +2,9 @@
 Pydantic schemas for the Deep Research API.
 """
 
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.research.state import ResearchLevel
 
@@ -12,8 +12,16 @@ from app.research.state import ResearchLevel
 class ResearchStart(BaseModel):
     query: str
     level: ResearchLevel = ResearchLevel.STANDARD
-    max_iterations: Optional[int] = None
-    max_results: Optional[int] = None
+    max_iterations: Optional[int] = Field(default=None, ge=1, le=100)
+    max_results: Optional[int] = Field(default=None, ge=1, le=1000)
+
+
+class ResearchStartLoop(BaseModel):
+    """Request schema for POST /api/research/start (confirmation loop)"""
+    topic: str
+    level: ResearchLevel = ResearchLevel.STANDARD
+    max_iterations: Optional[int] = Field(default=None, ge=1, le=100)
+    max_results: Optional[int] = Field(default=None, ge=1, le=1000)
 
 
 class ResearchStatus(BaseModel):
@@ -71,3 +79,19 @@ class ResearchRunningState(BaseModel):
     research_topic: str
     notes: list[str] = []
     queries: list[str] = []
+
+
+class ResearchStartResponse(BaseModel):
+    """Response from POST /api/research/start"""
+    thread_id: str
+
+
+class ResumeRequest(BaseModel):
+    """Request for POST /api/research/resume/{thread_id}"""
+    action: Union[str, dict]  # "option_1", "option_2", "option_3", "skip", "confirm_done", or {"type": "manual", "text": "..."}
+
+
+class ResumeResponse(BaseModel):
+    """Response from POST /api/research/resume/{thread_id}"""
+    status: Literal["resumed", "error"]
+    message: Optional[str] = None

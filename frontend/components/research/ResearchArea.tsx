@@ -1,10 +1,21 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Loader2, FileText, Trash2, RotateCcw, MoreHorizontal } from 'lucide-react';
+import { Search, Loader2, FileText, Trash2, RotateCcw, MoreHorizontal, HelpCircle, MessageSquare } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { fetchWithAuth, getApiUrl } from '../../app/lib/api';
+
+// Deep Research confirmation loop types
+type DeepResearchStatus = 'idle' | 'streaming' | 'waiting_input' | 'complete' | 'error';
+
+interface InterruptPayload {
+  question: string;
+  options: [string, string, string];
+  allow_manual_input: boolean;
+  allow_skip: boolean;
+  allow_confirm_done: boolean;
+}
 
 type ResearchLevel = 'standard' | 'extended' | 'manual';
 
@@ -49,6 +60,14 @@ export default function ResearchArea() {
   const [error, setError] = useState<string | null>(null);
   const [eventSource, setEventSource] = useState<EventSource | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Deep Research confirmation loop state
+  const [deepResearchThreadId, setDeepResearchThreadId] = useState<string | null>(null);
+  const [deepResearchStatus, setDeepResearchStatus] = useState<DeepResearchStatus>('idle');
+  const [researchHistory, setResearchHistory] = useState<string[]>([]);
+  const [currentInterrupt, setCurrentInterrupt] = useState<InterruptPayload | null>(null);
+  const [manualInput, setManualInput] = useState('');
+  const [deepResearchError, setDeepResearchError] = useState<string | null>(null);
 
   // Save/Load state
   const [currentReportId, setCurrentReportId] = useState<number | null>(null);
@@ -280,6 +299,13 @@ export default function ResearchArea() {
     setShowLevelDropdown(false);
     setProgress(0);
     setCurrentIteration(0);
+    // Reset deep research state
+    setDeepResearchThreadId(null);
+    setDeepResearchStatus('idle');
+    setResearchHistory([]);
+    setCurrentInterrupt(null);
+    setManualInput('');
+    setDeepResearchError(null);
   };
 
   // Auto-resize textarea
@@ -457,6 +483,159 @@ export default function ResearchArea() {
     }
   };
 
+  // Deep Research confirmation loop: connect to SSE stream
+  const connectDeepResearchSSE = (threadId: string) => {
+    const apiUrl = getApiUrl();
+    const streamUrl = `${apiUrl}/research/stream/${threadId}`;
+    const es = new EventSource(streamUrl, { withCredentials: true });
+
+    es.onmessage = (event) => {
+      try {
+        let raw = event.data;
+        if (raw.startsWith('"') && raw.endsWith('"')) raw = JSON.parse(raw);
+        const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        const eventType = data.type || data.event || '';
+        const eventData = data.data || data;
+
+        switch (eventType) {
+          case 'research_update':
+            if (eventData.content) {
+              setResearchHistory(prev => [...prev, eventData.content]);
+            }
+            break;
+
+          case 'interrupt':
+            setCurrentInterrupt({
+              question: eventData.question || 'What would you like to explore further?',
+              options: eventData.options || ['', '', ''],
+              allow_manual_input: eventData.allow_manual_input ?? true,
+              allow_skip: eventData.allow_skip ?? true,
+              allow_confirm_done: eventData.allow_confirm_done ?? true,
+            });
+            setDeepResearchStatus('waiting_input');
+            es.close();
+            break;
+
+          case 'complete':
+            if (eventData.final_report) {
+              setResearchHistory(prev => [...prev, '\n---\n# Final Report\n\n' + eventData.final_report]);
+            }
+            setDeepResearchStatus('complete');
+            es.close();
+            window.dispatchEvent(new Event('refresh-history'));
+            break;
+
+          case 'error':
+            setDeepResearchError(eventData.message || 'Research error occurred');
+            setDeepResearchStatus('error');
+            es.close();
+            break;
+
+          default:
+            if (eventData.content) {
+              setResearchHistory(prev => [...prev, eventData.content]);
+            }
+        }
+      } catch (e) {
+        console.warn('Failed to parse SSE event:', e);
+      }
+    };
+
+    es.onerror = () => {
+      setDeepResearchError('SSE connection error');
+      setDeepResearchStatus('error');
+      es.close();
+    };
+
+    return es;
+  };
+
+  // Deep Research: start new research session
+  const handleStartDeepResearch = async () => {
+    if (!queryInput.trim() || deepResearchStatus === 'streaming') return;
+
+    // Reset deep research state
+    setDeepResearchThreadId(null);
+    setDeepResearchStatus('streaming');
+    setResearchHistory([]);
+    setCurrentInterrupt(null);
+    setManualInput('');
+    setDeepResearchError(null);
+
+    try {
+      const apiUrl = getApiUrl();
+      const res = await fetchWithAuth(`${apiUrl}/research/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: queryInput.trim() }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`Failed to start research: ${res.status}`);
+      }
+
+      const data = await res.json();
+      const threadId = data.thread_id;
+      setDeepResearchThreadId(threadId);
+      connectDeepResearchSSE(threadId);
+    } catch (e) {
+      console.error('Failed to start deep research:', e);
+      setDeepResearchError(`启动研究失败: ${e instanceof Error ? e.message : String(e)}`);
+      setDeepResearchStatus('error');
+    }
+  };
+
+  // Deep Research: send resume action
+  const handleDeepResearchResume = async (action: string) => {
+    if (!deepResearchThreadId) return;
+
+    setDeepResearchStatus('streaming');
+    setCurrentInterrupt(null);
+    setManualInput('');
+
+    try {
+      const apiUrl = getApiUrl();
+      let body: Record<string, unknown> = { action };
+
+      // Handle manual input case
+      if (action.startsWith('manual:')) {
+        body = { action: { type: 'manual', text: action.replace('manual:', '') } };
+      }
+
+      await fetchWithAuth(`${apiUrl}/research/resume/${deepResearchThreadId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      // Reconnect to SSE after sending resume
+      connectDeepResearchSSE(deepResearchThreadId);
+    } catch (e) {
+      console.error('Failed to resume research:', e);
+      setDeepResearchError(`Resume failed: ${e instanceof Error ? e.message : String(e)}`);
+      setDeepResearchStatus('error');
+    }
+  };
+
+  // Deep Research: option click handlers
+  const handleOptionClick = (option: string) => {
+    handleDeepResearchResume(option);
+  };
+
+  const handleSkipClick = () => {
+    handleDeepResearchResume('skip');
+  };
+
+  const handleConfirmDoneClick = () => {
+    handleDeepResearchResume('confirm_done');
+  };
+
+  const handleManualInputSubmit = () => {
+    if (manualInput.trim()) {
+      handleDeepResearchResume(`manual:${manualInput.trim()}`);
+    }
+  };
+
   // Determine current view mode
   const viewMode = finalReport ? 'result' : (isRunning || clarifyQuestion || error) ? 'running' : 'input';
 
@@ -483,7 +662,7 @@ export default function ResearchArea() {
 
           {/* Level Selector - Dropdown in input view, static when running */}
           <div className="ml-auto flex items-center gap-2">
-            {viewMode === 'input' ? (
+            {viewMode === 'input' && deepResearchStatus === 'idle' ? (
               <div className="relative">
                 <button
                   onClick={() => setShowLevelDropdown(!showLevelDropdown)}
@@ -517,6 +696,10 @@ export default function ResearchArea() {
                   </>
                 )}
               </div>
+            ) : deepResearchStatus !== 'idle' ? (
+              <div className="px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-100 text-amber-700">
+                深度研究模式
+              </div>
             ) : (
               <div className="px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-100 text-indigo-700">
                 {LEVEL_INFO[selectedLevel].label} ({LEVEL_INFO[selectedLevel].iters}轮)
@@ -528,7 +711,7 @@ export default function ResearchArea() {
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {/* Input Section */}
-          {viewMode === 'input' && (
+          {viewMode === 'input' && deepResearchStatus === 'idle' && (
             <div className="max-w-3xl mx-auto">
               <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
                 <div className="p-5">
@@ -547,18 +730,18 @@ export default function ResearchArea() {
                 </div>
                 <div className="px-5 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
                   <div className="text-xs text-slate-400">
-                    {LEVEL_INFO[selectedLevel].iters} 次迭代 · 最多 {LEVEL_INFO[selectedLevel].results} 个搜索结果
+                    输入研究主题，AI 将深度调研并询问跟进问题
                   </div>
                   <button
-                    onClick={handleStartResearch}
-                    disabled={!queryInput.trim() || isRunning}
+                    onClick={handleStartDeepResearch}
+                    disabled={!queryInput.trim() || deepResearchStatus === 'streaming'}
                     className={`px-5 py-2.5 rounded-xl font-medium text-sm flex items-center gap-2 transition-all shadow-sm ${
-                      !queryInput.trim() || isRunning
+                      !queryInput.trim() || deepResearchStatus === 'streaming'
                         ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
                         : 'bg-indigo-600 hover:bg-indigo-700 text-white'
                     }`}
                   >
-                    {isRunning ? (
+                    {deepResearchStatus === 'streaming' ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
                         研究中...
@@ -686,6 +869,148 @@ export default function ResearchArea() {
                   ))}
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Deep Research Confirmation Loop UI */}
+          {deepResearchStatus !== 'idle' && (
+            <div className="max-w-3xl mx-auto space-y-4">
+              {/* Deep Research Header */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${deepResearchStatus === 'streaming' ? 'bg-indigo-500 animate-pulse' : deepResearchStatus === 'waiting_input' ? 'bg-amber-500' : deepResearchStatus === 'complete' ? 'bg-green-500' : 'bg-red-500'}`} />
+                  <span className="text-sm font-medium text-slate-600">
+                    {deepResearchStatus === 'streaming' && '深度研究中...'}
+                    {deepResearchStatus === 'waiting_input' && '等待您的选择'}
+                    {deepResearchStatus === 'complete' && '研究完成'}
+                    {deepResearchStatus === 'error' && '研究错误'}
+                  </span>
+                </div>
+                {deepResearchStatus !== 'complete' && (
+                  <button
+                    onClick={() => {
+                      setDeepResearchThreadId(null);
+                      setDeepResearchStatus('idle');
+                      setResearchHistory([]);
+                      setCurrentInterrupt(null);
+                      setManualInput('');
+                      setDeepResearchError(null);
+                      handleResetToNew();
+                    }}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
+                  >
+                    停止研究
+                  </button>
+                )}
+              </div>
+
+              {/* Deep Research Error */}
+              {deepResearchError && (
+                <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-700">
+                  <p className="text-sm font-medium">{deepResearchError}</p>
+                  <button
+                    onClick={() => {
+                      setDeepResearchError(null);
+                      setDeepResearchStatus('idle');
+                    }}
+                    className="mt-2 px-3 py-1.5 bg-red-100 hover:bg-red-200 rounded-lg text-xs font-medium transition-colors"
+                  >
+                    关闭
+                  </button>
+                </div>
+              )}
+
+              {/* Deep Research History */}
+              {researchHistory.length > 0 && (
+                <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+                  <h4 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                    <MessageSquare className="w-4 h-4 text-indigo-500" />
+                    研究进展
+                  </h4>
+                  <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                    {researchHistory.map((content, i) => (
+                      <div
+                        key={i}
+                        className="border-l-2 border-indigo-200 pl-4 py-2 bg-slate-50 rounded-r-lg"
+                      >
+                        <div className="text-xs text-indigo-500 font-medium mb-1">
+                          更新 {i + 1}
+                        </div>
+                        <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
+                          {content}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Interrupt Options Panel */}
+              {currentInterrupt && deepResearchStatus === 'waiting_input' && (
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 space-y-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-8 h-8 bg-amber-100 rounded-full flex items-center justify-center">
+                      <HelpCircle className="w-4 h-4 text-amber-600" />
+                    </div>
+                    <h3 className="text-sm font-semibold text-amber-800">深度研究问题</h3>
+                  </div>
+
+                  <p className="text-amber-700 text-sm">{currentInterrupt.question}</p>
+
+                  {/* Options */}
+                  <div className="space-y-2">
+                    {currentInterrupt.options.map((option, index) => (
+                      <button
+                        key={index}
+                        onClick={() => handleOptionClick(`option_${index + 1}`)}
+                        className="w-full text-left px-4 py-3 bg-white border border-amber-200 rounded-xl hover:bg-amber-100 hover:border-amber-300 transition-colors text-sm text-slate-700"
+                      >
+                        <span className="font-medium text-amber-600 mr-2">[{index + 1}]</span>
+                        {option}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Manual Input */}
+                  {currentInterrupt.allow_manual_input && (
+                    <div className="space-y-2">
+                      <textarea
+                        value={manualInput}
+                        onChange={(e) => setManualInput(e.target.value)}
+                        placeholder="或者输入您自己的想法..."
+                        className="w-full px-4 py-3 bg-white border border-amber-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500 text-sm text-slate-700 resize-none min-h-[80px] custom-scrollbar"
+                      />
+                      <button
+                        onClick={handleManualInputSubmit}
+                        disabled={!manualInput.trim()}
+                        className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        提交手动输入
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Skip and Confirm Done */}
+                  <div className="flex gap-2 pt-2">
+                    {currentInterrupt.allow_skip && (
+                      <button
+                        onClick={handleSkipClick}
+                        className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-sm font-medium transition-colors"
+                      >
+                        跳过
+                      </button>
+                    )}
+                    {currentInterrupt.allow_confirm_done && (
+                      <button
+                        onClick={handleConfirmDoneClick}
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium transition-colors"
+                      >
+                        确认完成
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

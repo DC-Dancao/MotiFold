@@ -19,9 +19,13 @@ from app.research.schemas import (
     ResearchHistoryItem,
     ResearchResult,
     ResearchStart,
+    ResearchStartLoop,
     ResearchRunningState,
+    ResearchStartResponse,
     ResearchStatus,
     ResearchReportSchema,
+    ResumeRequest,
+    ResumeResponse,
 )
 from app.research.state import LEVEL_DEFAULTS, ResearchLevel
 from app.research.stream import (
@@ -295,3 +299,215 @@ async def delete_research_report(
     await db.delete(report)
     await db.commit()
     return {"status": "success"}
+
+
+# =============================================================================
+# Confirmation Loop Endpoints (Task #9)
+# =============================================================================
+
+
+@router.post("/start", response_model=ResearchStartResponse)
+async def start_research_v2(
+    data: ResearchStartLoop,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Start a new deep research session with confirmation loop.
+    Returns immediately with thread_id; results streamed via SSE.
+    """
+    import uuid
+    from langchain_core.messages import HumanMessage
+    from app.research.agent import build_graph
+    from app.research.tasks import process_research_loop
+
+    # Generate thread_id (UUID)
+    thread_id = str(uuid.uuid4())
+    # Also generate task_id for Celery
+    task_id = str(uuid.uuid4())
+
+    # Store thread_id -> task_id mapping in Redis
+    redis = await get_redis()
+    await redis.set(f"thread_task:{thread_id}", task_id, ex=86400)  # 24h expiry
+
+    level = data.level or ResearchLevel.STANDARD
+    default_iters, default_results = LEVEL_DEFAULTS.get(level, (3, 10))
+    max_iters = data.max_iterations if data.max_iterations is not None else default_iters
+    max_res = data.max_results if data.max_results is not None else default_results
+
+    # Set processing flag
+    await set_processing_flag(task_id)
+
+    # Create DB record immediately so task appears in history
+    try:
+        async with AsyncSessionLocal() as db:
+            report = ResearchReport(
+                user_id=current_user.id,
+                query=data.topic,
+                level=level.value,
+                status="running",
+                task_id=task_id,
+                notes_json="[]",
+                queries_json="[]",
+                iterations=max_iters,
+            )
+            db.add(report)
+            await db.commit()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to create initial research record: {e}")
+
+    # Enqueue Celery task to run the research loop
+    # The task will run the graph until interrupt, then exit
+    # State is persisted via MemorySaver checkpointer
+    process_research_loop.delay(
+        task_id=task_id,
+        thread_id=thread_id,
+        query=data.topic,
+        level=level.value,
+        max_iterations=max_iters,
+        max_results=max_res,
+        user_id=current_user.id,
+    )
+
+    return ResearchStartResponse(thread_id=thread_id)
+
+
+@router.post("/resume/{thread_id}", response_model=ResumeResponse)
+async def resume_research(
+    thread_id: str,
+    data: ResumeRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Resume a research session after user action.
+    Looks up task_id from thread_id, calls graph.invoke with Command(resume=action).
+    """
+    from app.research.tasks import resume_research_task
+
+    # Look up task_id from thread_id in Redis
+    redis = await get_redis()
+    task_id = await redis.get(f"thread_task:{thread_id}")
+
+    if not task_id:
+        raise HTTPException(status_code=404, detail="Thread not found or expired")
+
+    task_id = task_id.decode() if isinstance(task_id, bytes) else task_id
+
+    # Enqueue Celery task to resume the research
+    # The task will call graph.invoke(Command(resume=action), config)
+    resume_research_task.delay(
+        task_id=task_id,
+        thread_id=thread_id,
+        action=data.action,
+    )
+
+    return ResumeResponse(status="resumed")
+
+
+@router.get("/stream/{thread_id}")
+async def stream_research_loop(
+    thread_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    SSE stream for research with confirmation loop.
+
+    Streams research_update, interrupt, complete, and error events.
+    The SSE stays open when an interrupt occurs, waiting for user action via POST /resume.
+
+    Event types:
+    - research_update: partial research content
+    - interrupt: AI requesting follow-up (contains options payload)
+    - complete: research finished (contains final result)
+    - error: error occurred
+    """
+    async def event_generator():
+        redis = await get_redis()
+        pubsub = redis.pubsub()
+        channel = f"research_stream_{thread_id}"
+        await pubsub.subscribe(channel)
+
+        try:
+            async for message in pubsub.listen():
+                if message["type"] == "message":
+                    data = message["data"]
+                    try:
+                        parsed = json.loads(data)
+                        event_type = parsed.get("type", "")
+
+                        # Handle [DONE] event - research complete
+                        if event_type == "[DONE]" or event_type == "done":
+                            yield f"data: {json.dumps({'type': 'complete', 'data': {'final_report': parsed.get('report', '')}})}\n\n"
+                            break
+
+                        # Handle error events
+                        if event_type == "error":
+                            yield f"data: {json.dumps({'type': 'error', 'data': {'message': parsed.get('message', 'Unknown error')}})}\n\n"
+                            break
+
+                        # Handle interrupt events
+                        if event_type == "interrupt":
+                            yield f"data: {json.dumps({
+                                'type': 'interrupt',
+                                'data': {
+                                    'question': parsed.get('question', ''),
+                                    'options': parsed.get('options', []),
+                                    'allow_manual_input': parsed.get('allow_manual_input', True),
+                                    'allow_skip': parsed.get('allow_skip', True),
+                                    'allow_confirm_done': parsed.get('allow_confirm_done', True),
+                                }
+                            })}\n\n"
+                            # SSE stays open after interrupt - waiting for user to POST /resume
+                            continue
+
+                        # Handle research_note / research_update events
+                        if event_type in ("research_note", "research_update", "note"):
+                            content = parsed.get('content', '')
+                            if content:
+                                yield f"data: {json.dumps({'type': 'research_update', 'data': {'content': content}})}\n\n"
+                            continue
+
+                        # Handle status events - emit as research_update if they have useful content
+                        if event_type == "status":
+                            event_name = parsed.get("event", "")
+                            message_text = parsed.get("message", "")
+                            # Emit status updates as research_update for visibility
+                            if message_text:
+                                yield f"data: {json.dumps({'type': 'research_update', 'data': {'content': message_text}})}\n\n"
+                            continue
+
+                        # Handle followup_decision events
+                        if event_type == "followup_decision":
+                            yield f"data: {json.dumps({
+                                'type': 'research_update',
+                                'data': {
+                                    'content': parsed.get('question', '') + '\n\nOptions:\n' + '\n'.join(f"- {opt}" for opt in parsed.get('options', []))
+                                }
+                            })}\n\n"
+                            continue
+
+                        # Handle other events - emit as research_update if they have content
+                        content = parsed.get('content') or parsed.get('message') or ''
+                        if content:
+                            yield f"data: {json.dumps({'type': 'research_update', 'data': {'content': str(content)}})}\n\n"
+
+                    except json.JSONDecodeError:
+                        # Plain string data
+                        if data == "[DONE]":
+                            yield f"data: {json.dumps({'type': 'complete', 'data': {'final_report': ''}})}\n\n"
+                            break
+                        if data:
+                            yield f"data: {json.dumps({'type': 'research_update', 'data': {'content': str(data)}})}\n\n"
+        finally:
+            await pubsub.unsubscribe(channel)
+            await pubsub.close()
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
