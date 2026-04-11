@@ -38,6 +38,18 @@ def generate_morphological_task(analysis_id: int):
             "message": "Starting parameter generation...",
         })
 
+        # Fetch analysis for user_id and focus_question
+        db_sync = SessionLocal()
+        try:
+            analysis = db_sync.query(MorphologicalAnalysis).filter(MorphologicalAnalysis.id == analysis_id).first()
+            if not analysis:
+                await clear_processing_flag(analysis_id)
+                return
+            user_id = analysis.user_id
+            focus_question = analysis.focus_question
+        finally:
+            db_sync.close()
+
         # Save initial state
         await save_matrix_state(analysis_id, {
             "status": "generating_parameters",
@@ -55,18 +67,6 @@ def generate_morphological_task(analysis_id: int):
             )
             await db.execute(stmt)
             await db.commit()
-
-        # Fetch analysis for user_id
-        db_sync = SessionLocal()
-        try:
-            analysis = db_sync.query(MorphologicalAnalysis).filter(MorphologicalAnalysis.id == analysis_id).first()
-            if not analysis:
-                await clear_processing_flag(analysis_id)
-                return
-            user_id = analysis.user_id
-            focus_question = analysis.focus_question
-        finally:
-            db_sync.close()
 
         try:
             # Generate parameters
@@ -175,6 +175,18 @@ def evaluate_consistency_task(analysis_id: int):
             "message": "Starting consistency evaluation...",
         })
 
+        # Fetch analysis for parameters and user_id
+        db_sync = SessionLocal()
+        try:
+            analysis = db_sync.query(MorphologicalAnalysis).filter(MorphologicalAnalysis.id == analysis_id).first()
+            if not analysis:
+                await clear_processing_flag(analysis_id)
+                return
+            user_id = analysis.user_id
+            parameters_json = analysis.parameters_json
+        finally:
+            db_sync.close()
+
         # Save initial state
         await save_matrix_state(analysis_id, {
             "status": "evaluating_matrix",
@@ -192,18 +204,6 @@ def evaluate_consistency_task(analysis_id: int):
             )
             await db.execute(stmt)
             await db.commit()
-
-        # Fetch analysis for parameters and user_id
-        db_sync = SessionLocal()
-        try:
-            analysis = db_sync.query(MorphologicalAnalysis).filter(MorphologicalAnalysis.id == analysis_id).first()
-            if not analysis:
-                await clear_processing_flag(analysis_id)
-                return
-            user_id = analysis.user_id
-            parameters_json = analysis.parameters_json
-        finally:
-            db_sync.close()
 
         try:
             # Evaluate consistency

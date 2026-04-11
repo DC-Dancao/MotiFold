@@ -7,7 +7,7 @@ from typing import List
 import json
 
 from app.llm.factory import get_llm
-from app.core.database import get_db, AsyncSessionLocal
+from app.core.database import get_db
 from app.auth.models import User
 from app.matrix.models import Keyword, MorphologicalAnalysis
 from app.core.security import get_current_user
