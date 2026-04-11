@@ -293,15 +293,6 @@ async def stream_morphological_analysis(
                 yield f"data: {json.dumps({'type': 'rejoin', **redis_state})}\n\n"
 
         if not is_processing:
-            # Check DB for current state
-            stmt = select(MorphologicalAnalysis).where(
-                MorphologicalAnalysis.id == analysis_id,
-                MorphologicalAnalysis.user_id == current_user.id,
-            )
-            async with AsyncSessionLocal() as db:
-                result = await db.execute(stmt)
-                analysis = result.scalars().first()
-
             if analysis:
                 # Emit current persisted state
                 yield f"data: {json.dumps({'type': 'rejoin', 'status': analysis.status, 'parameters': json.loads(analysis.parameters_json), 'matrix': json.loads(analysis.matrix_json)})}\n\n"

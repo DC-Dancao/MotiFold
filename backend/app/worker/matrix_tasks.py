@@ -41,6 +41,7 @@ def generate_morphological_task(analysis_id: int):
         # Save initial state
         await save_matrix_state(analysis_id, {
             "status": "generating_parameters",
+            "focus_question": focus_question,
             "message": "Starting parameter generation...",
             "parameters": [],
         })
@@ -177,6 +178,7 @@ def evaluate_consistency_task(analysis_id: int):
         # Save initial state
         await save_matrix_state(analysis_id, {
             "status": "evaluating_matrix",
+            "focus_question": analysis.focus_question,
             "message": "Starting consistency evaluation...",
             "matrix": {},
         })

@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.llm.checkpointer import ensure_checkpointer_ready
 from app.core.database import ensure_schema_ready
+from app.matrix.stream import close_redis_clients
 from app.auth.router import router as auth_router
 from app.workspace.router import router as workspace_router
 from app.chat.router import router as chat_router
@@ -28,6 +29,7 @@ async def lifespan(_: FastAPI):
     await ensure_schema_ready()
     await ensure_checkpointer_ready()
     yield
+    await close_redis_clients()
 
 
 app = FastAPI(title="Motifold Chat MVP", lifespan=lifespan)
