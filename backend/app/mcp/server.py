@@ -48,18 +48,16 @@ def _make_tools_tolerant(mcp: FastMCP) -> None:
     This wraps each tool's run() to filter arguments to only known parameters.
     """
     try:
-        # Compatibility with FastMCP versions
-        if hasattr(mcp, "_tool_manager"):
-            tools_dict = mcp._tool_manager._tools
-        elif hasattr(mcp, "tools"):
-            tools_dict = {t.name: t for t in mcp.tools}
-        else:
-            return
-            
-        for name, tool in tools_dict.items():
+        # FastMCP 3.x stores tools in _local_provider._components
+        # Keys are like 'tool:workspace_list@', values are FunctionTool objects
+        components = mcp._local_provider._components
+
+        for key, tool in components.items():
+            if not key.startswith("tool:"):
+                continue
             if hasattr(tool, "parameters") and tool.parameters:
                 allowed = set(tool.parameters.get("properties", {}).keys())
-                
+
                 # Check for run method
                 if hasattr(tool, "run"):
                     original_run = tool.run
@@ -128,10 +126,9 @@ class MCPMiddleware:
             auth_token = auth_header[7:].strip() if auth_header.startswith("Bearer ") else auth_header.strip()
 
         if not auth_token:
-            # Check for a static API key just in case we are in development mode
-            local_api_key = os.environ.get("MOTIFOLD_MCP_AUTH_TOKEN")
-            if local_api_key:
-                # If they didn't provide a token, but we have a static one, we fail auth
+            # No Bearer token provided — reject if MOTIFOLD_MCP_AUTH_TOKEN is configured
+            # (env var makes token required; otherwise fall through to inner app)
+            if os.environ.get("MOTIFOLD_MCP_AUTH_TOKEN"):
                 await self._send_error(send, 401, "Authorization header required")
                 return
 
