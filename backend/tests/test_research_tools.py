@@ -1,7 +1,7 @@
 """
 Tests for app.research.tools — web search and summarization.
 
-Uses mocks for googlesearch, aiohttp, and LLM calls.
+Uses mocks for ddgs, aiohttp, and LLM calls.
 """
 
 import pytest
@@ -131,23 +131,25 @@ class TestSearchAndSummarize:
     """Tests for search_and_summarize."""
 
     @pytest.mark.asyncio
-    @patch("app.research.tools.search")
+    @patch("app.research.tools.DDGS")
     @patch("app.research.tools.get_llm")
     @patch("aiohttp.ClientSession")
-    async def test_search_and_summarize_no_results(self, mock_session_cls, mock_get_llm, mock_search):
+    async def test_search_and_summarize_no_results(self, mock_session_cls, mock_get_llm, mock_ddgs):
         """Empty search results return empty list."""
         from app.research.tools import search_and_summarize
 
-        mock_search.return_value = []
+        mock_ddgs_instance = MagicMock()
+        mock_ddgs_instance.text.return_value = []
+        mock_ddgs.return_value.__enter__.return_value = mock_ddgs_instance
 
         result = await search_and_summarize(["test query"], max_results=5)
         assert result == []
 
     @pytest.mark.asyncio
-    @patch("app.research.tools.search")
+    @patch("app.research.tools.DDGS")
     @patch("app.research.tools.get_llm")
     @patch("aiohttp.ClientSession")
-    async def test_search_and_summarize_with_results(self, mock_session_cls, mock_get_llm, mock_search):
+    async def test_search_and_summarize_with_results(self, mock_session_cls, mock_get_llm, mock_ddgs):
         """Results are fetched and summarized."""
         from app.research.tools import search_and_summarize
 
@@ -155,7 +157,10 @@ class TestSearchAndSummarize:
         mock_result = MagicMock()
         mock_result.title = "Example"
         mock_result.url = "https://example.com"
-        mock_search.return_value = [mock_result]
+        mock_result.desc = "Example description"
+        mock_ddgs_instance = MagicMock()
+        mock_ddgs_instance.text.return_value = [mock_result]
+        mock_ddgs.return_value.__enter__.return_value = mock_ddgs_instance
 
         # Mock aiohttp session
         mock_response = AsyncMock()
@@ -187,17 +192,20 @@ class TestProgressCallback:
     """Tests that progress_callback is called correctly."""
 
     @pytest.mark.asyncio
-    @patch("app.research.tools.search")
+    @patch("app.research.tools.DDGS")
     @patch("app.research.tools.get_llm")
     @patch("aiohttp.ClientSession")
-    async def test_progress_callback_called(self, mock_session_cls, mock_get_llm, mock_search):
+    async def test_progress_callback_called(self, mock_session_cls, mock_get_llm, mock_ddgs):
         """Progress callback is invoked for each result."""
         from app.research.tools import search_and_summarize
 
         mock_result = MagicMock()
         mock_result.title = "Test"
         mock_result.url = "https://test.com"
-        mock_search.return_value = [mock_result]
+        mock_result.desc = "Test description"
+        mock_ddgs_instance = MagicMock()
+        mock_ddgs_instance.text.return_value = [mock_result]
+        mock_ddgs.return_value.__enter__.return_value = mock_ddgs_instance
 
         mock_response = AsyncMock()
         mock_response.status = 200
