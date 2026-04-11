@@ -50,6 +50,7 @@ export default function MorphologicalTab() {
   const [isSaving, setIsSaving] = useState(false);
   const [currentAnalysisId, setCurrentAnalysisId] = useState<number | null>(null);
   const [matrixEventSource, setMatrixEventSource] = useState<EventSource | null>(null);
+  const [sseRetryCount, setSseRetryCount] = useState(0);
 
   const maxStatesCount = useMemo(() => {
     return Math.max(...parameters.map(p => p.states.length), 0);
@@ -427,6 +428,7 @@ export default function MorphologicalTab() {
       if (event.data === '[DONE]') {
         es.close();
         setMatrixEventSource(null);
+        setSseRetryCount(0);
         return;
       }
 
@@ -477,6 +479,7 @@ export default function MorphologicalTab() {
           }
           es.close();
           setMatrixEventSource(null);
+          setSseRetryCount(0);
           // Refresh history for sidebar
           window.dispatchEvent(new Event('refresh-morphological-history'));
         } else if (eventType === 'error') {
@@ -490,8 +493,20 @@ export default function MorphologicalTab() {
     };
 
     es.onerror = () => {
-      es.close();
       setMatrixEventSource(null);
+      es.close();
+
+      // Only retry if still in a state that needs SSE
+      const maxRetries = 5;
+      if (sseRetryCount < maxRetries &&
+          (analysisStatus === 'generating_parameters' || analysisStatus === 'evaluating_matrix')) {
+        const delay = Math.min(1000 * Math.pow(2, sseRetryCount), 30000);
+        setSseRetryCount(prev => prev + 1);
+        setTimeout(() => {
+          // Force re-render to trigger reconnection
+          setMatrixEventSource(null);
+        }, delay);
+      }
     };
 
     // Cleanup on unmount or when currentAnalysisId changes
@@ -499,7 +514,12 @@ export default function MorphologicalTab() {
       es.close();
       setMatrixEventSource(null);
     };
-  }, [currentAnalysisId, analysisStatus]);
+  }, [currentAnalysisId, analysisStatus, sseRetryCount]);
+
+  // Reset SSE retry count when currentAnalysisId changes
+  useEffect(() => {
+    setSseRetryCount(0);
+  }, [currentAnalysisId]);
 
   const fetchSavedAnalyses = async () => {
     try {
