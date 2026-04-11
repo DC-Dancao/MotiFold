@@ -21,6 +21,108 @@ redis_client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
 TITLE_EVENT_PREFIX = "[TITLE]"
 
 
+# Module-level async engine singleton for memory operations
+_memory_async_engine = None
+_memory_async_session_maker = None
+
+
+def _get_memory_async_engine():
+    """Get or create the async engine singleton for memory operations."""
+    global _memory_async_engine, _memory_async_session_maker
+    if _memory_async_engine is None:
+        from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+        async_db_url = settings.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
+        _memory_async_engine = create_async_engine(async_db_url, pool_pre_ping=True)
+        _memory_async_session_maker = async_sessionmaker(
+            _memory_async_engine, expire_on_commit=False
+        )
+    return _memory_async_engine, _memory_async_session_maker
+
+
+def enrich_content_with_memory(session, workspace_id: int, content: str) -> str:
+    """
+    Enrich user content with relevant memories from the workspace.
+
+    Args:
+        session: Database session
+        workspace_id: Workspace ID for memory lookup
+        content: Original user message
+
+    Returns:
+        Enriched content with memory context prepended
+    """
+    try:
+        from app.memory.service import MemoryService
+
+        _, async_session_maker = _get_memory_async_engine()
+
+        async def _get_memories():
+            async with async_session_maker() as async_session:
+                memory_service = MemoryService(async_session)
+                memories = await memory_service.recall(
+                    workspace_id=workspace_id,
+                    query=content,
+                    limit=3,
+                    max_tokens=1000,
+                )
+                return memories
+
+        # Run async memory lookup
+        memories = asyncio.run(_get_memories())
+
+        if memories:
+            memory_context = "\n\n[相关记忆]\n" + "\n".join(
+                f"- {m.content}" for m in memories
+            )
+            return content + memory_context
+
+    except Exception as e:
+        logger.warning(f"Failed to enrich content with memory: {e}")
+
+    return content
+
+
+def store_conversation_in_memory(session, workspace_id: int, user_message: str, assistant_response: str):
+    """
+    Store a conversation exchange in workspace memory.
+
+    Args:
+        session: Database session
+        workspace_id: Workspace ID
+        user_message: User's message
+        assistant_response: Assistant's response
+    """
+    if not workspace_id:
+        return
+
+    try:
+        from app.memory.service import MemoryService
+
+        _, async_session_maker = _get_memory_async_engine()
+
+        async def _store():
+            async with async_session_maker() as async_session:
+                memory_service = MemoryService(async_session)
+                # Store user message
+                await memory_service.retain(
+                    workspace_id=workspace_id,
+                    content=f"用户: {user_message}",
+                    memory_type="fact",
+                )
+                # Store assistant response
+                await memory_service.retain(
+                    workspace_id=workspace_id,
+                    content=f"助手: {assistant_response}",
+                    memory_type="fact",
+                )
+
+        asyncio.run(_store())
+        logger.debug(f"Stored conversation in memory for workspace {workspace_id}")
+
+    except Exception as e:
+        logger.warning(f"Failed to store conversation in memory: {e}")
+
+
 def generate_chat_title_text(first_message: str) -> str:
     from langchain_core.messages import SystemMessage, HumanMessage
 
@@ -70,6 +172,14 @@ def process_message(chat_id: int, content: str):
         if not chat:
             return
 
+        # Get workspace_id for memory lookup
+        workspace_id = chat.workspace_id
+
+        # Enrich content with relevant memories
+        enriched_content = content
+        if workspace_id:
+            enriched_content = enrich_content_with_memory(db, workspace_id, content)
+
         # Publish tokens to redis
         channel = f"chat_stream_{chat_id}"
 
@@ -78,7 +188,11 @@ def process_message(chat_id: int, content: str):
             redis_client.publish(channel, token)
 
         try:
-            asyncio.run(run_agent(str(chat_id), content, token_callback))
+            response = asyncio.run(run_agent(str(chat_id), enriched_content, token_callback))
+
+            # Store conversation in memory after successful response
+            if workspace_id and response:
+                store_conversation_in_memory(db, workspace_id, content, response)
 
             # Check if auto-title needed
             if chat.title == "New Chat":

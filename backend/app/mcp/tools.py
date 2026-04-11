@@ -30,6 +30,8 @@ ALL_TOOLS = frozenset({
     # Research
     "research_list_reports", "research_get_report", "research_start",
     "research_get_result", "research_get_state", "research_delete_report",
+    # Memory
+    "memory_recall", "memory_retain", "memory_get_stats", "memory_get_entity_memories",
     # Operations
     "operation_list", "operation_get_status",
 })
@@ -99,6 +101,15 @@ def register_mcp_tools(mcp: FastMCP, config: MCPToolsConfig) -> None:
         _register_research_get_state(mcp, config)
     if "research_delete_report" in tools_to_register:
         _register_research_delete_report(mcp, config)
+
+    if "memory_recall" in tools_to_register:
+        _register_memory_recall(mcp, config)
+    if "memory_retain" in tools_to_register:
+        _register_memory_retain(mcp, config)
+    if "memory_get_stats" in tools_to_register:
+        _register_memory_get_stats(mcp, config)
+    if "memory_get_entity_memories" in tools_to_register:
+        _register_memory_get_entity_memories(mcp, config)
 
     if "operation_list" in tools_to_register:
         _register_operation_list(mcp, config)
@@ -982,6 +993,170 @@ def _register_research_delete_report(mcp: FastMCP, config: MCPToolsConfig) -> No
         except Exception as e:
             logger.error(f"Error deleting report: {e}", exc_info=True)
             return OperationStatus.error(str(report_id), str(e)).to_json()
+
+
+# =============================================================================
+# Memory Tools
+# =============================================================================
+
+def _register_memory_recall(mcp: FastMCP, config: MCPToolsConfig) -> None:
+    @mcp.tool()
+    async def memory_recall(
+        workspace_id: int,
+        query: str,
+        memory_type: str | None = None,
+        limit: int = 5,
+        use_multi_strategy: bool = False,
+    ) -> str:
+        """Recall relevant memories for a workspace using semantic search."""
+        user_id = config.user_id_resolver()
+        if user_id is None:
+            return OperationStatus.error(str(workspace_id), "Unauthorized").to_json()
+
+        try:
+            async with AsyncSessionLocal() as session:
+                # Verify workspace ownership
+                ws_result = await session.execute(
+                    select(Workspace).where(Workspace.id == workspace_id, Workspace.user_id == user_id)
+                )
+                if not ws_result.scalars().first():
+                    return OperationStatus.error(str(workspace_id), f"Workspace {workspace_id} not found").to_json()
+
+                from app.memory.service import MemoryService
+                service = MemoryService(session)
+                results = await service.recall(
+                    workspace_id=workspace_id,
+                    query=query,
+                    memory_type=memory_type,
+                    limit=limit,
+                    use_multi_strategy=use_multi_strategy,
+                )
+                return json.dumps({
+                    "results": [
+                        {
+                            "id": r.id,
+                            "content": r.content,
+                            "memory_type": r.memory_type,
+                            "similarity": r.similarity,
+                        }
+                        for r in results
+                    ],
+                    "total": len(results),
+                    "query": query,
+                })
+        except Exception as e:
+            logger.error(f"Error recalling memories: {e}", exc_info=True)
+            return OperationStatus.error(str(workspace_id), str(e)).to_json()
+
+
+def _register_memory_retain(mcp: FastMCP, config: MCPToolsConfig) -> None:
+    @mcp.tool()
+    async def memory_retain(
+        workspace_id: int,
+        content: str,
+        memory_type: str = "fact",
+    ) -> str:
+        """Store a memory for a workspace."""
+        user_id = config.user_id_resolver()
+        if user_id is None:
+            return OperationStatus.error(str(workspace_id), "Unauthorized").to_json()
+
+        try:
+            async with AsyncSessionLocal() as session:
+                # Verify workspace ownership
+                ws_result = await session.execute(
+                    select(Workspace).where(Workspace.id == workspace_id, Workspace.user_id == user_id)
+                )
+                if not ws_result.scalars().first():
+                    return OperationStatus.error(str(workspace_id), f"Workspace {workspace_id} not found").to_json()
+
+                from app.memory.service import MemoryService
+                service = MemoryService(session)
+                result = await service.retain(
+                    workspace_id=workspace_id,
+                    content=content,
+                    memory_type=memory_type,
+                )
+                return json.dumps({
+                    "memory_id": result.memory_id,
+                    "workspace_id": result.workspace_id,
+                    "memory_type": result.memory_type,
+                    "created_at": result.created_at.isoformat(),
+                })
+        except Exception as e:
+            logger.error(f"Error retaining memory: {e}", exc_info=True)
+            return OperationStatus.error(str(workspace_id), str(e)).to_json()
+
+
+def _register_memory_get_stats(mcp: FastMCP, config: MCPToolsConfig) -> None:
+    @mcp.tool()
+    async def memory_get_stats(workspace_id: int) -> str:
+        """Get memory statistics for a workspace."""
+        user_id = config.user_id_resolver()
+        if user_id is None:
+            return OperationStatus.error(str(workspace_id), "Unauthorized").to_json()
+
+        try:
+            async with AsyncSessionLocal() as session:
+                # Verify workspace ownership
+                ws_result = await session.execute(
+                    select(Workspace).where(Workspace.id == workspace_id, Workspace.user_id == user_id)
+                )
+                if not ws_result.scalars().first():
+                    return OperationStatus.error(str(workspace_id), f"Workspace {workspace_id} not found").to_json()
+
+                from app.memory.service import MemoryService
+                service = MemoryService(session)
+                stats = await service.get_memory_stats(workspace_id)
+                return json.dumps(stats)
+        except Exception as e:
+            logger.error(f"Error getting memory stats: {e}", exc_info=True)
+            return OperationStatus.error(str(workspace_id), str(e)).to_json()
+
+
+def _register_memory_get_entity_memories(mcp: FastMCP, config: MCPToolsConfig) -> None:
+    @mcp.tool()
+    async def memory_get_entity_memories(
+        workspace_id: int,
+        entity_name: str,
+        limit: int = 10,
+    ) -> str:
+        """Get all memories containing a specific entity."""
+        user_id = config.user_id_resolver()
+        if user_id is None:
+            return OperationStatus.error(str(workspace_id), "Unauthorized").to_json()
+
+        try:
+            async with AsyncSessionLocal() as session:
+                # Verify workspace ownership
+                ws_result = await session.execute(
+                    select(Workspace).where(Workspace.id == workspace_id, Workspace.user_id == user_id)
+                )
+                if not ws_result.scalars().first():
+                    return OperationStatus.error(str(workspace_id), f"Workspace {workspace_id} not found").to_json()
+
+                from app.memory.service import MemoryService
+                service = MemoryService(session)
+                results = await service.get_entity_memories(
+                    workspace_id=workspace_id,
+                    entity_name=entity_name,
+                    limit=limit,
+                )
+                return json.dumps({
+                    "entity": entity_name,
+                    "memories": [
+                        {
+                            "id": r.id,
+                            "content": r.content,
+                            "memory_type": r.memory_type,
+                            "similarity": r.similarity,
+                        }
+                        for r in results
+                    ],
+                })
+        except Exception as e:
+            logger.error(f"Error getting entity memories: {e}", exc_info=True)
+            return OperationStatus.error(str(workspace_id), str(e)).to_json()
 
 
 # =============================================================================

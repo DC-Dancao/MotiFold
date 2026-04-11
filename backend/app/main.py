@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +16,7 @@ from app.notification.router import router as notification_router
 from app.blackboard.router import router as blackboard_router
 from app.research.router import router as research_router
 from app.mcp.server import MCPMiddleware
+from app.memory.router import router as memory_router
 
 # Import all models so Alembic/SQLAlchemy can find them via Base.metadata
 from app.auth.models import User  # noqa: F401
@@ -22,12 +24,23 @@ from app.workspace.models import Workspace  # noqa: F401
 from app.chat.models import Chat, Message  # noqa: F401
 from app.matrix.models import Keyword, MorphologicalAnalysis  # noqa: F401
 from app.blackboard.models import BlackboardData  # noqa: F401
+from app.memory.models import MemoryBank, MemoryUnit, Entity  # noqa: F401
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await ensure_schema_ready()
     await ensure_checkpointer_ready()
+    # Initialize embedding service for memory
+    try:
+        from app.memory.embedding import init_embedding_service
+        await init_embedding_service()
+    except ModuleNotFoundError:
+        logger.warning("Embedding service dependencies not installed; memory embeddings disabled", exc_info=True)
+    except Exception:
+        logger.warning("Failed to initialize embedding service; memory embeddings disabled", exc_info=True)
     yield
     await close_redis_clients()
 
@@ -52,6 +65,7 @@ app.include_router(matrix_router)
 app.include_router(notification_router)
 app.include_router(blackboard_router)
 app.include_router(research_router)
+app.include_router(memory_router)
 
 @app.get("/")
 def read_root():

@@ -1,8 +1,7 @@
-from langchain_openai import ChatOpenAI
 from app.core.config import settings
 from app.llm.logger import CentralLLMLoggerCallbackHandler
 
-def get_llm(model_name: str = None, streaming: bool = False, **kwargs) -> ChatOpenAI:
+def get_llm(model_name: str = None, streaming: bool = False, **kwargs):
     """
     Central interface to instantiate ChatOpenAI models.
     Supports passing shorthand names ('max', 'pro', 'mini') or specific model strings.
@@ -24,6 +23,8 @@ def get_llm(model_name: str = None, streaming: bool = False, **kwargs) -> ChatOp
         if "stream_options" not in model_kwargs:
             model_kwargs["stream_options"] = {"include_usage": True}
         kwargs["model_kwargs"] = model_kwargs
+
+    from langchain_openai import ChatOpenAI
 
     return ChatOpenAI(
         model=model_name,
