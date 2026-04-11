@@ -214,5 +214,6 @@ def process_research(
                 "link": f"/research?report_id={saved_report_id}" if saved_report_id else None,
             }
             redis_client.publish(channel, json.dumps(notification))
+            redis_client.close()
 
     asyncio.run(_run())
