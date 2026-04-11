@@ -36,7 +36,6 @@ from app.matrix.stream import (
     get_redis,
     get_matrix_state,
     get_processing_status,
-    subscribe_stream,
 )
 
 router = APIRouter(prefix="/matrix", tags=["matrix"])
