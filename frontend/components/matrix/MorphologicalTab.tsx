@@ -49,6 +49,7 @@ export default function MorphologicalTab() {
   const [isLoadingSaved, setIsLoadingSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [currentAnalysisId, setCurrentAnalysisId] = useState<number | null>(null);
+  const [matrixEventSource, setMatrixEventSource] = useState<EventSource | null>(null);
 
   const maxStatesCount = useMemo(() => {
     return Math.max(...parameters.map(p => p.states.length), 0);
@@ -411,6 +412,95 @@ export default function MorphologicalTab() {
     }
   }, [matrixData, parameters, focusQuestion]);
 
+  // SSE connection for real-time matrix updates
+  useEffect(() => {
+    if (!currentAnalysisId || (analysisStatus !== 'generating_parameters' && analysisStatus !== 'evaluating_matrix')) {
+      return;
+    }
+
+    const apiUrl = getApiUrl();
+    const streamUrl = `${apiUrl}/matrix/morphological/${currentAnalysisId}/stream`;
+    const es = new EventSource(streamUrl, { withCredentials: true });
+    setMatrixEventSource(es);
+
+    es.onmessage = (event) => {
+      if (event.data === '[DONE]') {
+        es.close();
+        setMatrixEventSource(null);
+        return;
+      }
+
+      try {
+        let raw = event.data;
+        if (raw.startsWith('"') && raw.endsWith('"')) raw = JSON.parse(raw);
+        const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+
+        const eventType = data.type || data.event || '';
+
+        // Handle rejoin event — load state from SSE
+        if (eventType === 'rejoin') {
+          if (data.parameters) {
+            let parsedParams = data.parameters;
+            try {
+              if (typeof parsedParams === 'string') {
+                parsedParams = JSON.parse(parsedParams);
+              }
+            } catch (e) {
+              console.error("Failed to parse parameters", e);
+            }
+            setParameters(parsedParams);
+          }
+          if (data.matrix) setMatrixData(data.matrix);
+          if (data.status) setAnalysisStatus(data.status);
+          if (data.focus_question) setFocusQuestion(data.focus_question);
+          return;
+        }
+
+        if (eventType === 'status') {
+          if (data.status) setAnalysisStatus(data.status);
+        } else if (eventType === '[DONE]') {
+          if (data.parameters) {
+            let parsedParams = data.parameters;
+            try {
+              if (typeof parsedParams === 'string') {
+                parsedParams = JSON.parse(parsedParams);
+              }
+            } catch (e) {
+              console.error("Failed to parse parameters", e);
+            }
+            setParameters(parsedParams);
+          }
+          if (data.matrix) setMatrixData(data.matrix);
+          if (data.status) setAnalysisStatus(data.status);
+          if (data.error) {
+            console.error("Matrix generation error:", data.error);
+          }
+          es.close();
+          setMatrixEventSource(null);
+          // Refresh history for sidebar
+          window.dispatchEvent(new Event('refresh-morphological-history'));
+        } else if (eventType === 'error') {
+          console.error("Matrix SSE error:", data.message || data.error);
+          es.close();
+          setMatrixEventSource(null);
+        }
+      } catch (e) {
+        console.warn('Failed to parse SSE event:', e);
+      }
+    };
+
+    es.onerror = () => {
+      es.close();
+      setMatrixEventSource(null);
+    };
+
+    // Cleanup on unmount or when currentAnalysisId changes
+    return () => {
+      es.close();
+      setMatrixEventSource(null);
+    };
+  }, [currentAnalysisId, analysisStatus]);
+
   const fetchSavedAnalyses = async () => {
     try {
       setIsLoadingSaved(true);
@@ -493,23 +583,11 @@ export default function MorphologicalTab() {
     const handleNotification = (e: Event) => {
       const customEvent = e as CustomEvent;
       const data = customEvent.detail;
-      
+
       if (data.resource_id === currentAnalysisId && data.resource_type === 'morphological_analysis') {
         if (data.result === 'success') {
-          // Refetch current analysis
-          const fetchAndLoad = async () => {
-            try {
-              const apiUrl = getApiUrl();
-              const res = await fetchWithAuth(`${apiUrl}/matrix/morphological/${currentAnalysisId}`);
-              if (res.ok) {
-                const analysisData = await res.json();
-                loadAnalysis(analysisData);
-              }
-            } catch (err) {
-              console.error("Failed to fetch specific analysis", err);
-            }
-          };
-          fetchAndLoad();
+          // SSE delivers data directly, just refresh history for sidebar
+          window.dispatchEvent(new Event('refresh-morphological-history'));
         } else if (data.result === 'error') {
           // update local status on error from the notification's true status
           if (data.status) {
