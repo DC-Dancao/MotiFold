@@ -1,13 +1,13 @@
+# backend/tests/ai_logic/test_research_tools.py
 """
-Tests for app.research.tools — web search and summarization.
-
-Uses mocks for ddgs, aiohttp, and LLM calls.
+AI logic tests for app.research.tools — web search and summarization.
 """
-
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
 
 from app.research.state import Summary
+
+pytestmark = [pytest.mark.ai_logic, pytest.mark.asyncio]
 
 
 class TestSummarizeContent:

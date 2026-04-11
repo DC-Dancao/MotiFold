@@ -1,5 +1,5 @@
 import pytest
-from app.worker import generate_chat_title_text, update_chat_title
+from app.worker.chat_tasks import generate_chat_title_text, update_chat_title
 
 def test_generate_chat_title_text(mocker):
     class MockResponse:

@@ -1,0 +1,17 @@
+{
+  "description": "generate_steps 的 golden 测试数据集",
+  "test_cases": [
+    {
+      "id": "blackboard-001",
+      "topic": "鱼香肉丝的做法",
+      "expected_steps_min": 3,
+      "expected_fields": ["title", "note", "boardState"]
+    },
+    {
+      "id": "blackboard-002",
+      "topic": "Python 编程基础",
+      "expected_steps_min": 3,
+      "expected_fields": ["title", "note", "boardState"]
+    }
+  ]
+}

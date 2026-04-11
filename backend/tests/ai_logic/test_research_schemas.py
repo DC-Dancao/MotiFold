@@ -38,6 +38,7 @@ class TestResearchStatus:
                 message="test",
                 progress=0.5,
                 level=ResearchLevel.STANDARD,
+                task_id="test-task-123",
             )
             assert s.status == status
 
@@ -47,6 +48,7 @@ class TestResearchStatus:
             message="Searching...",
             progress=0.75,
             level=ResearchLevel.EXTENDED,
+            task_id="test-task-123",
         )
         assert s.progress == 0.75
 
@@ -57,6 +59,7 @@ class TestResearchStatus:
             progress=0.5,
             level=ResearchLevel.STANDARD,
             iteration=2,
+            task_id="test-task-123",
         )
         assert s.iteration == 2
 
@@ -67,6 +70,7 @@ class TestResearchStatus:
                 message="test",
                 progress=0.5,
                 level=ResearchLevel.STANDARD,
+                task_id="test-task-123",
             )
 
 

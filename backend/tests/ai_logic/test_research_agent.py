@@ -1,36 +1,21 @@
+# backend/tests/ai_logic/test_research_agent.py
 """
-Integration tests for app.research.agent — deep research scenarios with mocks.
-
-Tests verify the multi-iteration research loop, notes accumulation, and
-end-to-end state transitions — the behaviors that make deep research distinct
-from a simple one-shot LLM call.
+AI logic tests for app.research.agent — deep research scenarios with mocks.
 """
-
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
-
 from langchain_core.messages import HumanMessage
-
 from app.research.agent import (
-    clarify_topic,
-    plan_search,
-    execute_search,
-    synthesize,
-    should_continue,
-    generate_report,
-    build_graph,
+    clarify_topic, plan_search, execute_search, synthesize,
+    should_continue, generate_report, build_graph,
 )
 from langgraph.graph import END
-
 from app.research.state import (
-    ResearchState,
-    NeedsClarification,
-    ResearchTopic,
-    SearchPlan,
-    Summary,
-    FinalReport,
-    ResearchLevel,
+    ResearchState, NeedsClarification, ResearchTopic,
+    SearchPlan, Summary, FinalReport, ResearchLevel,
 )
+
+pytestmark = [pytest.mark.ai_logic, pytest.mark.asyncio]
 
 
 # --------------------------------------------------------------------------
@@ -69,7 +54,8 @@ def make_model_mock(return_values):
 # TestClarifyTopicIntegration
 # --------------------------------------------------------------------------
 
-@pytest.mark.asyncio
+
+@pytest.mark.ai_logic
 class TestClarifyTopicIntegration:
     """clarify_topic derives a deep research topic from a complex query."""
 
@@ -165,7 +151,8 @@ class TestClarifyTopicIntegration:
 # TestPlanSearchIntegration
 # --------------------------------------------------------------------------
 
-@pytest.mark.asyncio
+
+@pytest.mark.ai_logic
 class TestPlanSearchIntegration:
     """plan_search generates multiple search queries from a research topic."""
 
@@ -263,7 +250,8 @@ class TestPlanSearchIntegration:
 # TestExecuteSearchIntegration
 # --------------------------------------------------------------------------
 
-@pytest.mark.asyncio
+
+@pytest.mark.ai_logic
 class TestExecuteSearchIntegration:
     """execute_search runs search_and_summarize and populates search_results."""
 
@@ -312,7 +300,8 @@ class TestExecuteSearchIntegration:
 # TestSynthesizeIntegration
 # --------------------------------------------------------------------------
 
-@pytest.mark.asyncio
+
+@pytest.mark.ai_logic
 class TestSynthesizeIntegration:
     """synthesize converts search results into notes and increments iterations."""
 
@@ -391,7 +380,8 @@ class TestSynthesizeIntegration:
 # TestMultiIterationFlow
 # --------------------------------------------------------------------------
 
-@pytest.mark.asyncio
+
+@pytest.mark.ai_logic
 class TestMultiIterationFlow:
     """
     Core deep research behavior: multiple iterations accumulate notes
@@ -471,7 +461,8 @@ class TestMultiIterationFlow:
 # TestGenerateReportIntegration
 # --------------------------------------------------------------------------
 
-@pytest.mark.asyncio
+
+@pytest.mark.ai_logic
 class TestGenerateReportIntegration:
     """generate_report produces a structured markdown report from all notes."""
 
@@ -511,6 +502,8 @@ class TestGenerateReportIntegration:
 # TestEndToEndFlow
 # --------------------------------------------------------------------------
 
+
+@pytest.mark.ai_logic
 class TestEndToEndFlow:
     """Full graph end-to-end: verify compilation and meaningful final state."""
 

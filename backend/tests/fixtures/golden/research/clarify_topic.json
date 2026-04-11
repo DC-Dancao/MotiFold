@@ -1,0 +1,26 @@
+{
+  "description": "clarify_topic 的 golden 测试数据集",
+  "test_cases": [
+    {
+      "id": "clarify-001",
+      "query": "研究 AI Agent 在软件开发中的最新进展和面临的挑战",
+      "expected_keywords": ["AI Agent", "软件", "进展", "挑战", "自主"],
+      "expected_min_length": 10,
+      "expected_max_length": 200
+    },
+    {
+      "id": "clarify-002",
+      "query": "分析全球电动汽车市场 2024-2025 年的竞争格局与技术趋势",
+      "expected_keywords": ["电动汽车", "市场", "竞争", "格局", "技术趋势"],
+      "expected_min_length": 10,
+      "expected_max_length": 200
+    },
+    {
+      "id": "clarify-003",
+      "query": "调研 RAG（检索增强生成）技术在企业知识库中的应用现状与局限",
+      "expected_keywords": ["RAG", "检索增强", "知识库", "企业", "应用", "局限"],
+      "expected_min_length": 10,
+      "expected_max_length": 200
+    }
+  ]
+}
