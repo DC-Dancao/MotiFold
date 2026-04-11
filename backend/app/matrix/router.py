@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import update
@@ -6,7 +7,7 @@ from typing import List
 import json
 
 from app.llm.factory import get_llm
-from app.core.database import get_db
+from app.core.database import get_db, AsyncSessionLocal
 from app.auth.models import User
 from app.matrix.models import Keyword, MorphologicalAnalysis
 from app.core.security import get_current_user
@@ -30,6 +31,11 @@ from app.matrix.schemas import (
     EvaluateConsistencyResponse,
     SaveMorphologicalRequest,
     MorphologicalAnalysisSchema,
+)
+from app.matrix.stream import (
+    get_redis,
+    get_processing_status,
+    subscribe_stream,
 )
 
 router = APIRouter(prefix="/matrix", tags=["matrix"])
@@ -251,6 +257,85 @@ async def delete_morphological_analysis(
     await db.delete(analysis)
     await db.commit()
     return {"status": "success"}
+
+
+@router.post("/morphological/{analysis_id}/stream")
+async def stream_morphological_analysis(
+    analysis_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    SSE stream of morphological analysis progress events.
+    """
+    async def event_generator():
+        redis = await get_redis()
+        pubsub = redis.pubsub()
+        await pubsub.subscribe(f"matrix_stream_{analysis_id}")
+
+        is_processing = await get_processing_status(analysis_id)
+
+        # Emit persisted state first so reconnected clients see full progress
+        if is_processing:
+            redis_state = None
+            if redis_state:
+                yield f"data: {json.dumps({'type': 'rejoin', **redis_state})}\n\n"
+
+        if not is_processing:
+            # Check DB for current state
+            stmt = select(MorphologicalAnalysis).where(
+                MorphologicalAnalysis.id == analysis_id,
+                MorphologicalAnalysis.user_id == current_user.id,
+            )
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(stmt)
+                analysis = result.scalars().first()
+
+            if analysis:
+                # Emit current persisted state
+                yield f"data: {json.dumps({'type': 'rejoin', 'status': analysis.status, 'parameters': json.loads(analysis.parameters_json), 'matrix': json.loads(analysis.matrix_json)})}\n\n"
+                # If already complete, send done
+                if analysis.status in ("parameters_ready", "matrix_ready", "evaluate_failed"):
+                    yield f"data: {json.dumps({'type': 'done', 'status': analysis.status})}\n\n"
+                    yield "data: [DONE]\n\n"
+            else:
+                yield f"data: {json.dumps({'type': 'status', 'event': 'not_found', 'message': 'Analysis not found'})}\n\n"
+                yield "data: [DONE]\n\n"
+
+            await pubsub.unsubscribe(f"matrix_stream_{analysis_id}")
+            await pubsub.close()
+            return
+
+        try:
+            async for message in pubsub.listen():
+                if message["type"] == "message":
+                    data = message["data"]
+                    # Check for [DONE] event format: {"type": "[DONE]", "parameters": [...], "matrix": {...}, "status": "..."}
+                    try:
+                        parsed = json.loads(data)
+                        if parsed.get("type") == "[DONE]":
+                            done_event = {"type": "done"}
+                            if parsed.get("parameters"):
+                                done_event["parameters"] = parsed["parameters"]
+                            if parsed.get("matrix"):
+                                done_event["matrix"] = parsed["matrix"]
+                            if parsed.get("status"):
+                                done_event["status"] = parsed["status"]
+                            yield f"data: {json.dumps(done_event)}\n\n"
+                            break
+                        # Emit original data for other events
+                        yield f"data: {data}\n\n"
+                    except json.JSONDecodeError:
+                        # Plain string "[DONE]" fallback
+                        if data == "[DONE]":
+                            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                            yield "data: [DONE]\n\n"
+                            break
+                        yield f"data: {data}\n\n"
+        finally:
+            await pubsub.unsubscribe(f"matrix_stream_{analysis_id}")
+            await pubsub.close()
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @router.post("/keywords/generate", response_model=GenerateKeywordsResponse)
