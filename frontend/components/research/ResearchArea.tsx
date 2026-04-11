@@ -74,14 +74,40 @@ export default function ResearchArea() {
       handleResetToNew();
     };
 
+    const handleGlobalNotification = (e: Event) => {
+      const data = (e as CustomEvent).detail;
+
+      // Only handle research-related notifications
+      if (data.resource_type !== 'research_report') return;
+
+      // If this notification is about the currently loaded report
+      if (data.resource_id === currentReportId) {
+        if (data.result === 'success') {
+          // Refetch to get latest data
+          loadReport(data.resource_id);
+        } else if (data.result === 'error') {
+          // Could show error state or update status
+          setError(data.message || '研究失败');
+        }
+      }
+
+      // If research completed and user is not on research tab (currentReportId is null or different)
+      // The global notification toast will show, but we should also refresh history
+      if (data.result === 'success' && data.resource_type === 'research_report') {
+        window.dispatchEvent(new Event('refresh-history'));
+      }
+    };
+
     window.addEventListener('load-research-report', handleLoadReport);
     window.addEventListener('deleted-research-report', handleDeletedReport);
     window.addEventListener('new-research', handleNewResearch);
+    window.addEventListener('global-notification', handleGlobalNotification);
 
     return () => {
       window.removeEventListener('load-research-report', handleLoadReport);
       window.removeEventListener('deleted-research-report', handleDeletedReport);
       window.removeEventListener('new-research', handleNewResearch);
+      window.removeEventListener('global-notification', handleGlobalNotification);
     };
   }, [currentReportId]);
 
