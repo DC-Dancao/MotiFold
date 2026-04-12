@@ -76,7 +76,7 @@ class MemorySearch:
                 "content": m.content,
                 "memory_type": m.memory_type,
                 "similarity": 1.0,  # Keyword matches are binary here
-                "metadata": m.metadata or {},
+                "metadata": m.extra_data or {},
             }
             for m, _ in rows
         ]

@@ -25,7 +25,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # Enable pgvector extension (requires superuser or extension already available)
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    # Skipped for dev - vector extension not available in standard postgres:15
+    # op.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
     # Create memory_banks table
     op.create_table(
@@ -112,7 +113,8 @@ def upgrade() -> None:
 
     # Convert embedding column to vector type
     # This requires pgvector extension
-    op.execute("ALTER TABLE memory_units ALTER COLUMN embedding TYPE vector(1024)")
+    # Skipped for dev - vector extension not available
+    # op.execute("ALTER TABLE memory_units ALTER COLUMN embedding TYPE vector(1024)")
 
 
 def downgrade() -> None:

@@ -110,9 +110,9 @@ class EmbeddingService:
             List of embedding vectors (each is a list of floats)
         """
         if self._model is None:
-            raise RuntimeError(
-                "Embedding service not initialized. Call initialize() first."
-            )
+            # Auto-initialize if not yet initialized (lazy loading)
+            self._model = self._load_model()
+            self._dimension = self._model.get_sentence_embedding_dimension()
 
         embeddings = self._model.encode(
             texts,

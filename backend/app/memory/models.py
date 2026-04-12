@@ -9,6 +9,7 @@ from typing import Optional
 from sqlalchemy import (
     Column,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -68,9 +69,9 @@ class MemoryUnit(Base):
     id = Column(PGUUID(as_uuid=True), primary_key=True)
     bank_id = Column(PGUUID(as_uuid=True), ForeignKey("memory_banks.id", ondelete="CASCADE"), nullable=False)
     content = Column(Text, nullable=False)
-    embedding = Column(ARRAY_FLOAT, nullable=True)  # pgvector uses ARRAY_FLOAT
+    embedding = Column(ARRAY(Float), nullable=True)  # standard SQLAlchemy array
     memory_type = Column(String(50), default="fact")  # fact, preference, conclusion, context
-    metadata = Column(JSONB, default={})
+    extra_data = Column(JSONB, default={})
     entity_ids = Column(ARRAY(PGUUID(as_uuid=True)), default=[])
     created_at = Column(DateTime, default=datetime.utcnow)
     mentioned_at = Column(DateTime, default=datetime.utcnow)
@@ -113,7 +114,7 @@ class Entity(Base):
     name = Column(Text, nullable=False)
     entity_type = Column(String(50))  # person, topic, preference, conclusion
     canonical_name = Column(Text)
-    metadata = Column(JSONB, default={})
+    extra_data = Column(JSONB, default={})
     mention_count = Column(Integer, default=1)
     first_seen = Column(DateTime, default=datetime.utcnow)
     last_seen = Column(DateTime, default=datetime.utcnow)

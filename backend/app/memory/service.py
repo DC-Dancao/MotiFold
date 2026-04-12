@@ -268,7 +268,7 @@ class MemoryService:
                 content=memory.content,
                 memory_type=memory.memory_type,
                 similarity=float(similarity),
-                metadata=memory.metadata or {},
+                metadata=memory.extra_data or {},
             ))
             total_tokens += mem_tokens
 
@@ -407,7 +407,7 @@ class MemoryService:
                 content=memory.content,
                 memory_type=memory.memory_type,
                 similarity=1.0,  # Direct entity match
-                metadata=memory.metadata or {},
+                metadata=memory.extra_data or {},
             )
             for memory in memories
         ]

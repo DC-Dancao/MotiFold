@@ -18,7 +18,7 @@ from app.mcp.operations import OperationStatus, get_operation_status
 
 logger = logging.getLogger(__name__)
 
-async def _set_search_path(session, config: MCPToolsConfig) -> None:
+async def _set_search_path(session, config: 'MCPToolsConfig') -> None:
     org_schema = config.org_schema_resolver()
     if org_schema:
         await session.execute(text(f'SET search_path TO "{org_schema}", public'))

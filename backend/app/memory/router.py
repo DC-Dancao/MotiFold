@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.auth.models import User
-from app.auth.router import get_current_user
+from app.core.security import get_current_user
 from app.memory.service import MemoryService, MemoryLimitExceededError
 from app.memory.schemas import (
     MemoryCreate,
@@ -65,7 +65,7 @@ async def retain_memory(
             workspace_id=workspace_id,
             content=memory.content,
             memory_type=memory.memory_type,
-            metadata=memory.metadata,
+            metadata=memory.extra_data,
         )
         return result
     except MemoryLimitExceededError as e:

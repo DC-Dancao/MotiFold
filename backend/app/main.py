@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import asyncio
 import logging
 
 from fastapi import FastAPI
@@ -35,14 +36,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(_: FastAPI):
     await ensure_schema_ready()
     await ensure_checkpointer_ready()
-    # Initialize embedding service for memory
-    try:
-        from app.memory.embedding import init_embedding_service
-        await init_embedding_service()
-    except ModuleNotFoundError:
-        logger.warning("Embedding service dependencies not installed; memory embeddings disabled", exc_info=True)
-    except Exception:
-        logger.warning("Failed to initialize embedding service; memory embeddings disabled", exc_info=True)
+    # Note: embedding service is lazy-loaded on first use to avoid blocking startup
     yield
     await close_redis_clients()
 
