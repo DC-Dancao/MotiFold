@@ -39,13 +39,13 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
         setOrganizations(orgs);
 
         // Auto-select first org if currentOrg is not set or no longer valid
-        const storedOrgId = localStorage.getItem('motifold_current_org_id');
-        const validOrg = orgs.find(o => o.id === storedOrgId);
+        const storedOrgSlug = localStorage.getItem('motifold_current_org_id');
+        const validOrg = orgs.find(o => o.slug === storedOrgSlug);
         if (validOrg) {
           setCurrentOrgState(validOrg);
         } else if (orgs.length > 0 && !currentOrg) {
           setCurrentOrgState(orgs[0]);
-          localStorage.setItem('motifold_current_org_id', orgs[0].id);
+          localStorage.setItem('motifold_current_org_id', orgs[0].slug);
         }
       }
     } catch (error) {
@@ -58,7 +58,7 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
   const setCurrentOrg = useCallback((org: Organization | null) => {
     setCurrentOrgState(org);
     if (org) {
-      localStorage.setItem('motifold_current_org_id', org.id);
+      localStorage.setItem('motifold_current_org_id', org.slug);
     } else {
       localStorage.removeItem('motifold_current_org_id');
     }

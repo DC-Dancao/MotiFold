@@ -18,7 +18,7 @@ class OrganizationCreate(BaseModel):
         return v
 
 class OrganizationOut(BaseModel):
-    id: str  # slug
+    id: int
     name: str
     slug: str
     status: str
@@ -28,13 +28,13 @@ class OrganizationOut(BaseModel):
         from_attributes = True
 
 class OrganizationMemberCreate(BaseModel):
-    user_id: str
+    user_id: int
     role: str = "member"
 
 class OrganizationMemberOut(BaseModel):
     id: str
-    organization_id: str
-    user_id: str
+    organization_id: int
+    user_id: int
     role: str
     joined_at: datetime
 

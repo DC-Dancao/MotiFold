@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from fastapi import APIRouter, Depends, HTTPException, status, Body, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Request, Response, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from fastapi.security import OAuth2PasswordRequestForm
@@ -17,16 +17,41 @@ class RefreshRequest(BaseModel):
 router = APIRouter()
 
 @router.post("/register", response_model=UserOut)
-async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
+async def register(user: UserCreate, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.username == user.username))
     if result.scalars().first():
         raise HTTPException(status_code=400, detail="Username already registered")
-    
+
     hashed_password = get_password_hash(user.password)
     db_user = User(username=user.username, password_hash=hashed_password)
     db.add(db_user)
+    await db.flush()  # Get the user.id
+
+    # Create default personal organization for the user
+    from app.org.models import Organization, OrganizationMember
+    org_slug = f"user_{db_user.username}"
+    org = Organization(
+        name=f"{db_user.username}'s Organization",
+        slug=org_slug,
+        status='provisioning'
+    )
+    db.add(org)
+    await db.flush()  # Get the org.id
+
+    member = OrganizationMember(
+        id=f"{org.id}_{db_user.id}",
+        organization_id=org.id,
+        user_id=db_user.id,
+        role="owner"
+    )
+    db.add(member)
     await db.commit()
     await db.refresh(db_user)
+
+    # Trigger async provisioning in background
+    from app.org import provisioner
+    background_tasks.add_task(provisioner.provision_org_schema, org_slug)
+
     return db_user
 
 @router.post("/login", response_model=Token)

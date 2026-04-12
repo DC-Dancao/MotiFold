@@ -28,6 +28,7 @@ from app.chat.models import Chat, Message  # noqa: F401
 from app.matrix.models import Keyword, MorphologicalAnalysis  # noqa: F401
 from app.blackboard.models import BlackboardData  # noqa: F401
 from app.memory.models import MemoryBank, MemoryUnit, Entity  # noqa: F401
+from app.org.models import Organization, OrganizationMember  # noqa: F401
 
 logger = logging.getLogger(__name__)
 

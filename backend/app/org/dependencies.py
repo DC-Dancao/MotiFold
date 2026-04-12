@@ -18,9 +18,9 @@ async def get_current_org_membership(
     if org_slug is None:
         raise HTTPException(status_code=400, detail="X-Org-ID header required")
 
-    # Check org status
+    # Check org status by slug
     result = await db.execute(
-        select(Organization).where(Organization.id == org_slug)
+        select(Organization).where(Organization.slug == org_slug)
     )
     org = result.scalars().first()
     if not org:
@@ -28,11 +28,11 @@ async def get_current_org_membership(
     if org.status != 'active':
         raise HTTPException(status_code=503, detail="Organization not active")
 
-    # Check membership
+    # Check membership using org.id (integer)
     result = await db.execute(
         select(OrganizationMember).where(
-            OrganizationMember.organization_id == org_slug,
-            OrganizationMember.user_id == str(current_user.id)
+            OrganizationMember.organization_id == org.id,
+            OrganizationMember.user_id == current_user.id
         )
     )
     membership = result.scalars().first()

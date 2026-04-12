@@ -5,7 +5,6 @@ from app.core.database import Base
 
 class Organization(Base):
     __tablename__ = "organizations"
-    __table_args__ = {'schema': 'public'}
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String, nullable=False)
@@ -17,11 +16,10 @@ class Organization(Base):
 
 class OrganizationMember(Base):
     __tablename__ = "organization_members"
-    __table_args__ = {'schema': 'public'}
 
     id = Column(String(100), primary_key=True)  # "{org_id}_{user_id}"
-    organization_id = Column(Integer, ForeignKey("public.organizations.id", ondelete="CASCADE"), nullable=False)
-    user_id = Column(Integer, ForeignKey("public.users.id", ondelete="CASCADE"), nullable=False)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     role = Column(String(20), nullable=False, server_default="member")  # owner, admin, member
     joined_at = Column(DateTime(timezone=True), server_default=func.now())
 
