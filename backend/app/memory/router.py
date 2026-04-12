@@ -8,6 +8,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -19,6 +20,7 @@ from app.memory.schemas import (
     MemoryRecallResult,
     RecallResponse,
     RetainResponse,
+    RecentMemoriesResponse,
 )
 
 router = APIRouter(prefix="/memory", tags=["memory"])
@@ -196,3 +198,49 @@ async def update_preference(
         preference_value=preference_value,
     )
     return result
+
+
+@router.get("/{workspace_id}/recent", response_model=RecentMemoriesResponse)
+async def get_recent_memories(
+    workspace_id: int,
+    limit: int = Query(20, ge=1, le=100, description="Max results"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await _verify_workspace_access(workspace_id, db, current_user)
+    """
+    Get recent memories for a workspace.
+
+    Args:
+        workspace_id: The workspace ID
+        limit: Maximum number of results
+
+    Returns:
+        List of recent memories
+    """
+    service = MemoryService(db)
+    memories = await service.get_recent_memories(workspace_id, limit=limit)
+    return RecentMemoriesResponse(memories=memories, total=len(memories))
+
+
+@router.get("/{workspace_id}/hit-rate")
+async def get_memory_hit_rate(
+    workspace_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await _verify_workspace_access(workspace_id, db, current_user)
+    """
+    Get memory hit rate for a workspace.
+
+    Hit rate = memories that have been recalled at least once / total memories.
+
+    Args:
+        workspace_id: The workspace ID
+
+    Returns:
+        Hit rate as a float between 0 and 1
+    """
+    service = MemoryService(db)
+    hit_rate = await service.get_hit_rate(workspace_id)
+    return {"hit_rate": hit_rate}

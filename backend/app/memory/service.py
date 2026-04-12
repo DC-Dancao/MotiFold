@@ -22,6 +22,7 @@ from app.memory.schemas import (
     MemoryCreate,
     MemoryRecallResult,
     RetainResponse,
+    MemoryRecentItem,
 )
 
 logger = logging.getLogger(__name__)
@@ -154,12 +155,19 @@ class MemoryService:
             content=content,
             embedding=embedding,
             memory_type=memory_type,
-            metadata=metadata or {},
+            extra_data=metadata or {},
             entity_ids=entity_ids,
         )
         self.db.add(memory)
         await self.db.commit()
         await self.db.refresh(memory)
+        # Explicitly set mentioned_at = created_at to ensure they're equal at creation
+        # This is needed for accurate hit rate calculation (mentioned_at > created_at means recalled)
+        await self.db.execute(
+            text("UPDATE memory_units SET mentioned_at = created_at WHERE id = :id"),
+            {"id": str(memory.id)}
+        )
+        await self.db.commit()
 
         logger.debug(f"Stored memory {memory.id} for workspace {workspace_id}")
 
@@ -600,6 +608,80 @@ Return empty array if no significant entities found."""
             stats["total"] += count
 
         return stats
+
+    async def get_recent_memories(
+        self,
+        workspace_id: int,
+        limit: int = 20,
+    ) -> list[MemoryRecentItem]:
+        """
+        Get recent memories for a workspace.
+
+        Args:
+            workspace_id: The workspace ID
+            limit: Maximum number of results
+
+        Returns:
+            List of MemoryRecentItem sorted by created_at
+        """
+        bank = await self.ensure_bank(workspace_id)
+
+        stmt = (
+            select(MemoryUnit)
+            .where(MemoryUnit.bank_id == bank.id)
+            .order_by(MemoryUnit.created_at.desc())
+            .limit(limit)
+        )
+
+        result = await self.db.execute(stmt)
+        memories = result.scalars().all()
+
+        return [
+            MemoryRecentItem(
+                id=str(memory.id),
+                content=memory.content,
+                memory_type=memory.memory_type,
+                created_at=memory.created_at,
+                mentioned_at=memory.mentioned_at,
+            )
+            for memory in memories
+        ]
+
+    async def get_hit_rate(self, workspace_id: int) -> float:
+        """
+        Calculate hit rate for a workspace.
+
+        Hit rate = memories that have been mentioned at least once / total memories
+
+        Args:
+            workspace_id: The workspace ID
+
+        Returns:
+            Hit rate as a float between 0 and 1
+        """
+        bank = await self.ensure_bank(workspace_id)
+
+        # Total count
+        total_result = await self.db.execute(
+            select(func.count(MemoryUnit.id)).where(MemoryUnit.bank_id == bank.id)
+        )
+        total = total_result.scalar() or 0
+
+        if total == 0:
+            return 0.0
+
+        # Count memories that have been mentioned (mentioned_at != created_at means recalled at least once)
+        # Actually, mentioned_at starts same as created_at but gets updated on recall
+        # So we need memories where mentioned_at > created_at (has been recalled)
+        mentioned_result = await self.db.execute(
+            select(func.count(MemoryUnit.id)).where(
+                MemoryUnit.bank_id == bank.id,
+                MemoryUnit.mentioned_at > MemoryUnit.created_at,
+            )
+        )
+        mentioned = mentioned_result.scalar() or 0
+
+        return mentioned / total
 
     async def keyword_search(
         self,

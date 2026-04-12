@@ -68,3 +68,18 @@ class RetainResponse(BaseModel):
     workspace_id: int
     memory_type: str
     created_at: datetime
+
+
+class MemoryRecentItem(BaseModel):
+    """Schema for a recent memory item."""
+    id: str
+    content: str
+    memory_type: str
+    created_at: datetime
+    mentioned_at: Optional[datetime] = None
+
+
+class RecentMemoriesResponse(BaseModel):
+    """Schema for recent memories response."""
+    memories: list[MemoryRecentItem]
+    total: int

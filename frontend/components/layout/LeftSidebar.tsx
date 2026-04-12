@@ -15,7 +15,8 @@ import {
   MoreHorizontal,
   Trash2,
   X,
-  Search
+  Search,
+  Brain
 } from 'lucide-react';
 
 interface Chat {
@@ -635,7 +636,7 @@ export default function LeftSidebar() {
               onClick={() => setIsChatsOpen(!isChatsOpen)}
             >
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest group-hover:text-slate-600 transition-colors">
-                {pathname === '/matrix' ? `形态分析历史 (${morphologicalHistory.length})` : pathname === '/blackboard' ? `黑板历史 (${blackboardHistory.length})` : pathname === '/research' ? `研究报告 (${researchHistory.length})` : `对话 (${chats.length})`}
+                {pathname === '/matrix' ? `形态分析历史 (${morphologicalHistory.length})` : pathname === '/blackboard' ? `黑板历史 (${blackboardHistory.length})` : pathname === '/research' ? `研究报告 (${researchHistory.length})` : pathname === '/memory' ? `记忆` : `对话 (${chats.length})`}
               </span>
               <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform duration-200 ${isChatsOpen ? '' : '-rotate-90'}`} />
             </div>
@@ -888,6 +889,18 @@ export default function LeftSidebar() {
                       ))
                     )}
                   </>
+                ) : pathname === '/memory' ? (
+                  <>
+                    <button
+                      onClick={() => router.push('/chat?chatId=new')}
+                      className={`w-full text-left px-3 py-2 mb-2 rounded-xl transition-colors flex items-center justify-center gap-2 text-sm font-medium flex-shrink-0 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-indigo-600 shadow-sm`}
+                    >
+                      返回对话
+                    </button>
+                    <div className="text-center text-xs text-slate-400 py-4">
+                      记忆面板位于右侧工作区
+                    </div>
+                  </>
                 ) : (
                   <>
                     <button 
@@ -1014,6 +1027,14 @@ export default function LeftSidebar() {
                 >
                   <Search className={`w-4 h-4 flex-shrink-0 ${pathname === '/research' ? 'text-indigo-600' : 'text-slate-400'}`} />
                   <span className="font-medium">深度研究</span>
+                </button>
+
+                <button
+                  onClick={() => router.push('/memory')}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 ${pathname === '/memory' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
+                >
+                  <Brain className={`w-4 h-4 flex-shrink-0 ${pathname === '/memory' ? 'text-indigo-600' : 'text-slate-400'}`} />
+                  <span className="font-medium">记忆</span>
                 </button>
               </div>
             )}
