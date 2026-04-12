@@ -30,11 +30,11 @@ async def register(user: UserCreate, background_tasks: BackgroundTasks, db: Asyn
     # Create default personal organization for the user
     # Note: All data is in public schema (not separate org schemas)
     from app.org.models import Organization, OrganizationMember
-    org_slug = f"user_{db_user.username}"
+    org_slug = f"user_{db_user.id}"
     org = Organization(
         name=f"{db_user.username}'s Organization",
         slug=org_slug,
-        status='active'
+        status='provisioning'
     )
     db.add(org)
     await db.flush()  # Get the org.id
@@ -47,6 +47,11 @@ async def register(user: UserCreate, background_tasks: BackgroundTasks, db: Asyn
     )
     db.add(member)
     await db.commit()
+
+    # Trigger async schema provisioning (instant via template clone)
+    from app.org import provisioner
+    background_tasks.add_task(provisioner.provision_org_schema, org_slug)
+
     await db.refresh(db_user)
 
     return db_user

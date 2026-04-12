@@ -422,7 +422,13 @@ export default function LeftSidebar() {
   const handleLogout = async () => {
     localStorage.removeItem('motifold_username');
     localStorage.removeItem('motifold_active_workspace_id');
-    await clearAuthCookies();
+    localStorage.removeItem('motifold_current_org_id');
+    try {
+      await clearAuthCookies();
+    } catch (e) {
+      // Ignore redirect error
+    }
+    window.location.href = '/login';
   };
 
   const handleNewChat = () => {

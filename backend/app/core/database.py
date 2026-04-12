@@ -52,5 +52,5 @@ async def get_db_with_schema(request: Request):
     async with AsyncSessionLocal() as session:
         if org_schema:
             from sqlalchemy import text
-            await session.execute(text(f'SET search_path TO "{org_schema}", public'))
+            await session.execute(text(f'SET LOCAL search_path TO "{org_schema}", public'))
         yield session

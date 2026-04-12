@@ -1,53 +1,53 @@
-"""Async org schema provisioning using Alembic API."""
-from alembic.config import Config as AlembicConfig
-from alembic.runtime.migration import MigrationContext
-from alembic.script import ScriptDirectory
+"""Fast org schema provisioning via template clone.
+
+Clone the template schema by creating a new schema and copying all table
+structures from the template schema.
+"""
 from sqlalchemy import text
-from app.core.database import engine, AsyncSessionLocal, get_alembic_config
+from app.core.database import engine, AsyncSessionLocal
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
-# Revision ID of the org schema tables migration
-ORG_SCHEMA_TABLES_REVISION = '1b2c3d4e5f6'
+TEMPLATE_SCHEMA = "template"
+SLUG_PATTERN = re.compile(r'^[a-z0-9][a-z0-9_-]*$')
+
 
 async def provision_org_schema(org_slug: str) -> None:
     """
-    Provision a new org schema:
+    Provision a new org schema by cloning the template schema structure:
     1. CREATE SCHEMA org_{slug}
-    2. Run Alembic migration against new schema (creates all business tables)
+    2. Clone all tables from template schema (structure only, no data)
     3. Update organizations.status to 'active'
     """
+    if not SLUG_PATTERN.match(org_slug) or len(org_slug) > 50:
+        raise ValueError(f"Invalid org slug format: {org_slug}")
     schema_name = f"org_{org_slug}"
 
     try:
-        # Step 1: Create schema
         async with engine.begin() as conn:
-            await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"'))
+            # Create the new schema
+            await conn.execute(text(f'CREATE SCHEMA "{schema_name}"'))
             logger.info(f"Created schema {schema_name}")
 
-        # Step 2: Run Alembic migration against new schema using run_sync
-        alembic_cfg = get_alembic_config()
+            # Get all tables in template schema
+            tables_result = await conn.execute(text("""
+                SELECT tablename FROM pg_tables
+                WHERE schemaname = :template_schema
+            """), {"template_schema": TEMPLATE_SCHEMA})
+            tables = [row[0] for row in tables_result.fetchall()]
 
-        async def run_migrations_sync(connection):
-            # Set search_path for this connection to the new schema
-            connection.execute(text(f'SET search_path TO "{schema_name}", public'))
+            # Clone each table structure (LIKE creates table with same structure, indexes, constraints)
+            for table in tables:
+                clone_sql = text(f'''
+                    CREATE TABLE "{schema_name}"."{table}"
+                    (LIKE "{TEMPLATE_SCHEMA}"."{table}" INCLUDING ALL)
+                ''')
+                await conn.execute(clone_sql)
+                logger.info(f"Cloned table {table} to {schema_name}")
 
-            # Run migration programmatically
-            script_dir = ScriptDirectory.from_config(alembic_cfg)
-            migration_context = MigrationContext.configure(connection=connection)
-
-            # Get and run the org schema tables migration
-            revision = script_dir.get_revision(ORG_SCHEMA_TABLES_REVISION)
-            if revision:
-                migration_context.run_migration([revision])
-                logger.info(f"Ran migration {ORG_SCHEMA_TABLES_REVISION} on schema {schema_name}")
-
-        # Use async connection with run_sync for Alembic
-        async with engine.connect() as conn:
-            await conn.run_sync(run_migrations_sync)
-
-        # Step 3: Update status to active
+        # Update status to active
         async with AsyncSessionLocal() as session:
             await session.execute(
                 text("UPDATE public.organizations SET status = 'active' WHERE slug = :slug"),
@@ -67,4 +67,16 @@ async def provision_org_schema(org_slug: str) -> None:
                 await session.commit()
         except Exception:
             pass
+        raise
+
+
+async def deprovision_org_schema(org_slug: str) -> None:
+    """Drop org schema when org is deleted."""
+    schema_name = f"org_{org_slug}"
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE'))
+            logger.info(f"Dropped schema {schema_name}")
+    except Exception as e:
+        logger.error(f"Failed to drop schema {schema_name}: {e}")
         raise

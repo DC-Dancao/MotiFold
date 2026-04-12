@@ -43,7 +43,7 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
         const validOrg = orgs.find(o => o.slug === storedOrgSlug);
         if (validOrg) {
           setCurrentOrgState(validOrg);
-        } else if (orgs.length > 0 && !currentOrg) {
+        } else if (orgs.length > 0) {
           setCurrentOrgState(orgs[0]);
           localStorage.setItem('motifold_current_org_id', orgs[0].slug);
         }
@@ -53,7 +53,7 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [currentOrg]);
+  }, []);
 
   const setCurrentOrg = useCallback((org: Organization | null) => {
     setCurrentOrgState(org);

@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     OPENAI_MODEL_MAX: str = "gpt-4o"
     OPENAI_MODEL_PRO: str = "gpt-4o"
     OPENAI_MODEL_MINI: str = "gpt-4o-mini"
+    LOG_LEVEL: str = "INFO"
 
     # Memory settings
     MEMORY_ENTITY_EXTRACTION_ENABLED: bool = False  # Experimental feature

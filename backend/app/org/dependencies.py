@@ -6,15 +6,23 @@ from app.core.database import get_db
 from app.auth.models import User
 from app.org.models import Organization, OrganizationMember
 from app.core.security import get_current_user
-from app.tenant.context import get_current_org
+from app.tenant.context import get_current_org, set_current_org, get_schema_name
 
 async def get_current_org_membership(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> OrganizationMember:
-    """Validates user is member of current org from X-Org-ID header."""
+    """Validates user is member of current org from X-Org-ID header or context."""
+    # First try to get from context (set by middleware)
     org_slug = get_current_org()
+
+    # If not set, try to get from X-Org-ID header directly
+    if org_slug is None:
+        org_slug = request.headers.get("X-Org-ID")
+        if org_slug:
+            set_current_org(org_slug)
+
     if org_slug is None:
         raise HTTPException(status_code=400, detail="X-Org-ID header required")
 

@@ -2,10 +2,16 @@ from contextlib import asynccontextmanager
 import asyncio
 import logging
 
+from app.core.config import settings
+
+# Configure logging for app modules
+log_level = getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO)
+logging.basicConfig(level=log_level, format='%(name)s - %(levelname)s - %(message)s')
+for logger_name in ['app', 'uvicorn', 'uvicorn.error', 'uvicorn.access']:
+    logging.getLogger(logger_name).setLevel(log_level)
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
-from app.core.config import settings
 from app.llm.checkpointer import ensure_checkpointer_ready
 from app.core.database import ensure_schema_ready
 from app.matrix.stream import close_redis_clients
@@ -62,11 +68,11 @@ app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(org_router, prefix="/api/orgs", tags=["organizations"])
 app.include_router(workspace_router, prefix="/workspaces", tags=["workspaces"])
 app.include_router(chat_router, prefix="/chats", tags=["chats"])
-app.include_router(matrix_router)
-app.include_router(notification_router)
-app.include_router(blackboard_router)
-app.include_router(research_router)
-app.include_router(memory_router)
+app.include_router(matrix_router, tags=["matrix"])
+app.include_router(notification_router, tags=["notification"])
+app.include_router(blackboard_router, tags=["blackboard"])
+app.include_router(research_router, tags=["research"])
+app.include_router(memory_router, tags=["memory"])
 
 @app.get("/")
 def read_root():
