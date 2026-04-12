@@ -14,7 +14,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Paths that should not be parsed as org-scoped
-PUBLIC_PATHS = {"/", "/auth", "/docs", "/openapi.json", "/redoc"}
+PUBLIC_PATHS = {"/", "/auth", "/docs", "/openapi.json", "/redoc", "/notifications"}
 
 
 def _get_org_slug_from_path(path: str) -> str | None:
@@ -33,7 +33,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
         path = request.url.path
 
         # Skip non-org paths (exact match or auth/docs prefix)
-        if path == "/" or path.startswith("/auth") or path.startswith("/docs") or path.startswith("/openapi") or path.startswith("/redoc"):
+        if path == "/" or path.startswith("/auth") or path.startswith("/docs") or path.startswith("/openapi") or path.startswith("/redoc") or path.startswith("/notifications"):
             set_current_org(None)
             request.state.org_schema = None
             return await call_next(request)
