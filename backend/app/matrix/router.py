@@ -497,7 +497,7 @@ async def delete_keyword(
 async def check_orthogonality(
     request: Dict,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db_with_schema)
 ):
     """Check parameter orthogonality."""
     from .service import check_orthogonality
@@ -526,7 +526,7 @@ async def check_orthogonality(
 async def cluster_solutions(
     request: ClusterRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db_with_schema)
 ):
     """Auto-cluster valid solutions."""
     from .service import enumerate_solutions, cluster_solutions
@@ -568,7 +568,7 @@ async def cluster_solutions(
 async def suggest_ahp_weights(
     request: AHPSuggestRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db_with_schema)
 ):
     """Get suggested AHP weights."""
     from .service import suggest_ahp_weights
@@ -602,7 +602,7 @@ async def suggest_ahp_weights(
 async def score_solutions(
     request: ScoreRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db_with_schema)
 ):
     """Score and rank solutions."""
     from .service import enumerate_solutions, score_solutions
@@ -637,7 +637,7 @@ async def get_solutions(
     analysis_id: int,
     max_yellows: int = 2,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db_with_schema)
 ):
     """Get enumerated solutions for an analysis."""
     from .service import enumerate_solutions

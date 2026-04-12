@@ -609,7 +609,7 @@ export default function MorphologicalTab() {
       es.close();
       setMatrixEventSource(null);
     };
-  }, [currentAnalysisId, analysisStatus]);
+  }, [currentAnalysisId, analysisStatus, sseRetryCount]);
 
   // Reset SSE retry count when currentAnalysisId changes
   useEffect(() => {
