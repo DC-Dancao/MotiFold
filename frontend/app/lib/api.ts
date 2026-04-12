@@ -1,3 +1,4 @@
+export { getApiUrl } from './api-base';
 import { getApiUrl } from './api-base';
 
 let refreshPromise: Promise<boolean> | null = null;
