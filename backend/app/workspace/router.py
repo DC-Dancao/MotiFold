@@ -47,7 +47,7 @@ async def create_workspace(
         name=workspace_data.name
     )
     db.add(new_workspace)
-    await db.flush()
+    await db.commit()
     return new_workspace
 
 @router.get("/{workspace_id}", response_model=WorkspaceOut)

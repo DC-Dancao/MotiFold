@@ -35,6 +35,7 @@ export default function ChatArea() {
   const chatId = isNewChat ? 'new' : (chatIdParam ? parseInt(chatIdParam, 10) : null);
 
   const isCreatingNewChat = useRef(false);
+  const pendingMessageContent = useRef<string | null>(null);
   const dispatchChatTitleUpdated = (detail: ChatTitleUpdatedDetail) => {
     window.dispatchEvent(new CustomEvent<ChatTitleUpdatedDetail>('chat-title-updated', { detail }));
   };
@@ -85,6 +86,24 @@ export default function ChatArea() {
 
         if (isCreatingNewChat.current) {
           isCreatingNewChat.current = false;
+          // If there's a pending message from new chat creation, send it
+          if (pendingMessageContent.current) {
+            const msgToSend = pendingMessageContent.current;
+            pendingMessageContent.current = null;
+            // Send the pending message
+            const resolvedChatId = typeof chatId === 'number' ? chatId : parseInt(chatId as string, 10);
+            const idempotencyKey = `msg_${Date.now()}_${Math.random()}`;
+            const msgRes = await fetchWithAuth(`${apiUrl}/chats/${resolvedChatId}/messages`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ content: msgToSend, idempotency_key: idempotencyKey })
+            });
+            if (msgRes.ok) {
+              const msgData = await msgRes.json();
+              const msgs = Array.isArray(msgData) ? msgData : msgData.items ?? [];
+              setMessages(msgs);
+            }
+          }
           return;
         }
 
@@ -113,7 +132,8 @@ export default function ChatArea() {
     };
     
     init();
-  }, [chatIdParam, chatId, isNewChat, router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatIdParam, chatId, isNewChat]);
   const sendMessage = async () => {
     if (!input.trim() || !chatId || isLoading) return;
 
@@ -151,7 +171,11 @@ export default function ChatArea() {
           title: newChat.title || 'New Chat',
           createdAt: newChat.created_at
         });
+        // Store the message content to send after URL changes
+        pendingMessageContent.current = userMessageContent;
         router.replace(`/chat?chatId=${actualChatId}`);
+        // Return here - the URL change will trigger init() which will properly send the message
+        return;
       }
 
       const resolvedChatId = typeof actualChatId === 'number' ? actualChatId : parseInt(actualChatId, 10);

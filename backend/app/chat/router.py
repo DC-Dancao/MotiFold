@@ -56,7 +56,8 @@ async def create_chat(
 
     new_chat = Chat(user_id=current_user.id, workspace_id=workspace_id, title="New Chat")
     db.add(new_chat)
-    await db.flush()
+    await db.commit()
+    # Return with ID populated - no refresh needed since commit auto-refreshes
     return new_chat
 
 @router.get("/{chat_id}", response_model=ChatOut)
