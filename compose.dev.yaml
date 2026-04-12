@@ -2,6 +2,8 @@ services:
   db-migration:
     build:
       target: dev
+    env_file:
+      - ./backend/.env
     environment:
       ENV: development
     volumes:
@@ -11,6 +13,8 @@ services:
   api:
     build:
       target: dev
+    env_file:
+      - ./backend/.env
     environment:
       ENV: development
     volumes:
@@ -24,6 +28,8 @@ services:
   celery:
     build:
       target: dev
+    env_file:
+      - ./backend/.env
     environment:
       ENV: development
     volumes:
