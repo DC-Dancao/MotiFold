@@ -57,7 +57,24 @@ class DynamicModelMiddleware(AgentMiddleware):
 
 default_llm = get_llm(model_name=settings.OPENAI_MODEL_MINI, streaming=True)
 
-def get_workflow(checkpointer=None):
+def get_workflow(checkpointer=None, model_override: str = None):
+    """
+    Create agent workflow.
+
+    Args:
+        checkpointer: LangGraph checkpointer for state persistence
+        model_override: Specific model to use ("mini", "pro", "max") or None/"auto" for dynamic routing
+    """
+    # If specific model requested, use it directly without middleware
+    if model_override and model_override != "auto":
+        llm = get_llm(model_name=model_override, streaming=True)
+        return create_agent(
+            model=llm,
+            tools=[],
+            checkpointer=checkpointer
+        )
+
+    # Otherwise use dynamic routing middleware
     return create_agent(
         model=default_llm,
         tools=[],
@@ -67,9 +84,9 @@ def get_workflow(checkpointer=None):
 
 workflow = get_workflow()
 
-async def run_agent(thread_id: str, content: str, token_callback):
+async def run_agent(thread_id: str, content: str, token_callback, model: str = None):
     async with get_checkpointer() as checkpointer:
-        app_with_checkpoint = get_workflow(checkpointer)
+        app_with_checkpoint = get_workflow(checkpointer, model_override=model)
         lc_message = HumanMessage(content=content)
 
         from langchain_core.callbacks import AsyncCallbackHandler

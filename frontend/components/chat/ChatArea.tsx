@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Bot, User, Paperclip, Send } from 'lucide-react';
+import { Bot, User, Paperclip, Send, ChevronDown } from 'lucide-react';
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import { fetchWithAuth, getApiUrl } from '../../app/lib/api';
@@ -21,13 +21,23 @@ interface ChatTitleUpdatedDetail {
   createdAt?: string;
 }
 
+const MODEL_OPTIONS = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'mini', label: 'Mini' },
+  { value: 'pro', label: 'Pro' },
+  { value: 'max', label: 'Max' },
+];
+
 export default function ChatArea() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [chatTitle, setChatTitle] = useState('Loading...');
+  const [selectedModel, setSelectedModel] = useState('pro');
+  const [showModelDropdown, setShowModelDropdown] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
+
   const router = useRouter();
   const searchParams = useSearchParams();
   const chatIdParam = searchParams.get('chatId');
@@ -49,12 +59,41 @@ export default function ChatArea() {
     scrollToBottom();
   }, [messages]);
 
+  // Load model from localStorage when chatId changes
+  useEffect(() => {
+    if (chatId && chatId !== 'new') {
+      const savedModel = localStorage.getItem(`chat_model_${chatId}`);
+      if (savedModel) {
+        setSelectedModel(savedModel);
+      }
+    }
+  }, [chatId]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(event.target as Node)) {
+        setShowModelDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleModelChange = (model: string) => {
+    setSelectedModel(model);
+    if (chatId && chatId !== 'new') {
+      localStorage.setItem(`chat_model_${chatId}`, model);
+    }
+    setShowModelDropdown(false);
+  };
+
   // Proper auth and chat init
   useEffect(() => {
     const init = async () => {
       try {
         const apiUrl = getApiUrl();
-        
+
         // If no chatId in URL, fetch chats and redirect to the first one or create new
         if (!chatIdParam) {
           const activeWsId = localStorage.getItem('motifold_active_workspace_id');
@@ -96,7 +135,7 @@ export default function ChatArea() {
             const msgRes = await fetchWithAuth(`${apiUrl}/chats/${resolvedChatId}/messages`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ content: msgToSend, idempotency_key: idempotencyKey })
+              body: JSON.stringify({ content: msgToSend, idempotency_key: idempotencyKey, model: selectedModel })
             });
             if (msgRes.ok) {
               const msgData = await msgRes.json();
@@ -116,11 +155,18 @@ export default function ChatArea() {
         if (chatRes.ok) {
           const chatData = await chatRes.json();
           setChatTitle(chatData.title);
+          // Load model from chat if available, otherwise use saved or default
+          if (chatData.model) {
+            setSelectedModel(chatData.model);
+            if (chatId && chatId !== 'new') {
+              localStorage.setItem(`chat_model_${chatId}`, chatData.model);
+            }
+          }
         }
 
         // Fetch messages for chat
         const msgRes = await fetchWithAuth(`${apiUrl}/chats/${chatId}/messages`);
-        
+
         if (msgRes.ok) {
           const msgData = await msgRes.json();
           const initialMessages = Array.isArray(msgData) ? msgData : msgData.items ?? [];
@@ -130,7 +176,7 @@ export default function ChatArea() {
         console.error("Initialization failed:", e);
       }
     };
-    
+
     init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatIdParam, chatId, isNewChat]);
@@ -152,11 +198,11 @@ export default function ChatArea() {
       if (chatId === 'new') {
         isCreatingNewChat.current = true;
         const activeWsId = localStorage.getItem('motifold_active_workspace_id');
-        const createBody: { workspace_id?: number } = {};
+        const createBody: { workspace_id?: number; model?: string } = { model: selectedModel };
         if (activeWsId) {
           createBody.workspace_id = parseInt(activeWsId, 10);
         }
-        
+
         const createRes = await fetchWithAuth(`${apiUrl}/chats/`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -184,12 +230,13 @@ export default function ChatArea() {
       
       const res = await fetchWithAuth(`${apiUrl}/chats/${resolvedChatId}/messages`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           content: userMessageContent,
-          idempotency_key: idempotencyKey
+          idempotency_key: idempotencyKey,
+          model: selectedModel
         })
       });
 
@@ -312,7 +359,7 @@ export default function ChatArea() {
       
       <div className="relative z-10 flex-1 flex flex-col h-full">
         {/* Chat Header */}
-        <div className="h-16 border-b border-slate-100 flex items-center px-6 bg-white/80 backdrop-blur-sm sticky top-0 z-10">
+        <div className="h-16 border-b border-slate-100 flex items-center px-6 bg-white/80 backdrop-blur-sm sticky top-0 z-10 justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center">
               <Bot className="w-4 h-4" />
@@ -321,6 +368,35 @@ export default function ChatArea() {
               <h3 className="font-bold text-slate-800">{chatTitle}</h3>
             </div>
           </div>
+
+          {/* Model Selector */}
+          {chatId && chatId !== 'new' && (
+            <div className="relative" ref={modelDropdownRef}>
+              <button
+                onClick={() => setShowModelDropdown(!showModelDropdown)}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+              >
+                <span>{MODEL_OPTIONS.find(m => m.value === selectedModel)?.label || 'Pro'}</span>
+                <ChevronDown className="w-4 h-4" />
+              </button>
+
+              {showModelDropdown && (
+                <div className="absolute right-0 mt-1 w-32 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-50">
+                  {MODEL_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      onClick={() => handleModelChange(option.value)}
+                      className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 ${
+                        selectedModel === option.value ? 'text-indigo-600 font-medium' : 'text-slate-700'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Chat Messages */}

@@ -164,7 +164,7 @@ def update_chat_title(chat_id: int, first_message: str, db=None, publish: bool =
             session.close()
 
 @celery_app.task(name="process_message")
-def process_message(chat_id: int, content: str, org_schema: str | None = None):
+def process_message(chat_id: int, content: str, org_schema: str | None = None, model: str = "pro"):
     db = SessionLocal()
     # Set search_path to org schema if provided
     if org_schema:
@@ -191,7 +191,9 @@ def process_message(chat_id: int, content: str, org_schema: str | None = None):
             redis_client.publish(channel, token)
 
         try:
-            response = asyncio.run(run_agent(str(chat_id), enriched_content, token_callback))
+            # Use "auto" if model is "auto" or not set, otherwise use specific model
+            model_override = None if (model == "auto" or model is None) else model
+            response = asyncio.run(run_agent(str(chat_id), enriched_content, token_callback, model=model_override))
 
             # Store conversation in memory after successful response
             if workspace_id and response:

@@ -48,13 +48,14 @@ async def create_chat(
     membership = Depends(get_current_org_membership),
 ):
     workspace_id = chat_data.workspace_id if chat_data else None
+    model = chat_data.model if chat_data and chat_data.model else "pro"
     if workspace_id is not None:
         # Verify workspace exists in this org
         result = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
         if not result.scalars().first():
             raise HTTPException(status_code=404, detail="Workspace not found")
 
-    new_chat = Chat(user_id=current_user.id, workspace_id=workspace_id, title="New Chat")
+    new_chat = Chat(user_id=current_user.id, workspace_id=workspace_id, title="New Chat", model=model)
     db.add(new_chat)
     await db.commit()
     # Return with ID populated - no refresh needed since commit auto-refreshes
@@ -145,10 +146,13 @@ async def send_message(
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
 
+    # Use message model if provided, otherwise use chat model
+    model = message.model if message.model else chat.model
+
     from app.worker.chat_tasks import process_message
     await redis_client.setex(f"chat_processing_{chat_id}", 300, "1")
     org_schema = getattr(request.state, 'org_schema', None)
-    process_message.delay(chat_id, message.content, org_schema)
+    process_message.delay(chat_id, message.content, org_schema, model)
 
     return {"status": "processing", "stream_url": f"/chats/{chat_id}/stream"}
 
