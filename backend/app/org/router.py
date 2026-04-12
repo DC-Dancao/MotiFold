@@ -21,22 +21,22 @@ async def create_organization(
     current_user: User = Depends(get_current_user),
 ):
     # Check slug uniqueness
-    result = await db.execute(select(Organization).where(Organization.id == org_data.slug))
+    result = await db.execute(select(Organization).where(Organization.slug == org_data.slug))
     if result.scalars().first():
         raise HTTPException(status_code=400, detail="Slug already taken")
 
     org = Organization(
-        id=org_data.slug,
         name=org_data.name,
         slug=org_data.slug,
         status='provisioning'
     )
     db.add(org)
+    await db.flush()  # Get the org.id
 
     member = OrganizationMember(
-        id=f"{org_data.slug}_{current_user.id}",
-        organization_id=org_data.slug,
-        user_id=str(current_user.id),
+        id=f"{org.id}_{current_user.id}",
+        organization_id=org.id,
+        user_id=current_user.id,
         role="owner"
     )
     db.add(member)
@@ -57,7 +57,7 @@ async def list_organizations(
     result = await db.execute(
         select(Organization)
         .join(OrganizationMember)
-        .where(OrganizationMember.user_id == str(current_user.id))
+        .where(OrganizationMember.user_id == current_user.id)
     )
     return result.scalars().all()
 
@@ -68,7 +68,7 @@ async def get_organization(
     current_user: User = Depends(get_current_user),
     membership: OrganizationMember = Depends(require_org_role("owner", "admin", "member")),
 ):
-    result = await db.execute(select(Organization).where(Organization.id == org_id))
+    result = await db.execute(select(Organization).where(Organization.slug == org_id))
     org = result.scalars().first()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
