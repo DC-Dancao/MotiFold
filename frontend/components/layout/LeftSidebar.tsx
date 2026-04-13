@@ -195,7 +195,7 @@ export default function LeftSidebar() {
     };
     
     fetchWorkspaces();
-  }, [refreshChats]);
+  }, [refreshChats, currentOrg?.id]);
 
   useEffect(() => {
     if (pathname === '/matrix') {
