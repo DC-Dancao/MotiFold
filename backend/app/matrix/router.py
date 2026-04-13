@@ -340,7 +340,7 @@ async def stream_morphological_analysis(
                     try:
                         parsed = json.loads(data)
                         if parsed.get("type") == "[DONE]":
-                            done_event = {"type": "done"}
+                            done_event = {"type": "[DONE]"}
                             if parsed.get("parameters"):
                                 done_event["parameters"] = parsed["parameters"]
                             if parsed.get("matrix"):
@@ -354,7 +354,7 @@ async def stream_morphological_analysis(
                     except json.JSONDecodeError:
                         # Plain string "[DONE]" fallback
                         if data == "[DONE]":
-                            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                            yield f"data: {json.dumps({'type': '[DONE]'})}\n\n"
                             yield "data: [DONE]\n\n"
                             break
                         yield f"data: {data}\n\n"
@@ -493,7 +493,7 @@ async def delete_keyword(
     return {"status": "success"}
 
 
-@router.post("/orthogonality-check")
+@router.post("/morphological/orthogonality-check")
 async def check_orthogonality(
     request: Dict,
     current_user: User = Depends(get_current_user),

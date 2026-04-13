@@ -51,7 +51,13 @@ async def create_chat(
     model = chat_data.model if chat_data and chat_data.model else "pro"
     if workspace_id is not None:
         # Verify workspace exists in this org
-        result = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
+        org_slug = get_current_org()
+        result = await db.execute(
+            select(Workspace).where(
+                Workspace.id == workspace_id,
+                Workspace.org_slug == org_slug
+            )
+        )
         if not result.scalars().first():
             raise HTTPException(status_code=404, detail="Workspace not found")
 
