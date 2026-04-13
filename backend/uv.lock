@@ -1711,7 +1711,6 @@ dependencies = [
     { name = "pytest-mock" },
     { name = "python-multipart" },
     { name = "redis" },
-    { name = "sentence-transformers" },
     { name = "socksio" },
     { name = "sqlalchemy" },
     { name = "sse-starlette" },
@@ -1724,6 +1723,11 @@ dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "watchfiles" },
+]
+ml = [
+    { name = "scipy" },
+    { name = "sentence-transformers" },
+    { name = "torch" },
 ]
 
 [package.metadata]
@@ -1750,7 +1754,6 @@ requires-dist = [
     { name = "pytest-mock", specifier = ">=3.15.1" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "redis", specifier = ">=5.0.3" },
-    { name = "sentence-transformers", specifier = ">=3.0.0" },
     { name = "socksio", specifier = ">=1.0.0" },
     { name = "sqlalchemy", specifier = ">=2.0.28" },
     { name = "sse-starlette", specifier = ">=2.0.0" },
@@ -1763,6 +1766,11 @@ dev = [
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "pytest-asyncio", specifier = ">=1.3.0" },
     { name = "watchfiles", specifier = ">=0.21.0" },
+]
+ml = [
+    { name = "scipy" },
+    { name = "sentence-transformers", specifier = ">=3.0.0" },
+    { name = "torch" },
 ]
 
 [[package]]
