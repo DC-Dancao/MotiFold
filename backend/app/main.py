@@ -25,6 +25,7 @@ from app.research.router import router as research_router
 from app.tenant.middleware import TenantMiddleware
 from app.org.router import router as org_router
 from app.memory.router import router as memory_router
+from app.stats.router import router as stats_router
 
 # Import all models so Alembic/SQLAlchemy can find them via Base.metadata
 from app.auth.models import User  # noqa: F401
@@ -86,6 +87,7 @@ app.include_router(notification_router, tags=["notification"])
 app.include_router(blackboard_router, tags=["blackboard"])
 app.include_router(research_router, tags=["research"])
 app.include_router(memory_router, tags=["memory"])
+app.include_router(stats_router, tags=["stats"])
 
 @app.get("/")
 def read_root():

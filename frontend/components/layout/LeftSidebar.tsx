@@ -17,7 +17,8 @@ import {
   X,
   Search,
   Brain,
-  Terminal
+  Terminal,
+  LayoutDashboard,
 } from 'lucide-react';
 
 interface Chat {
@@ -1043,6 +1044,15 @@ export default function LeftSidebar() {
               </div>
             )}
           </div>
+
+          {/* Overview */}
+          <button
+            onClick={() => router.push('/overview')}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 ${pathname === '/overview' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
+          >
+            <LayoutDashboard className={`w-4 h-4 flex-shrink-0 ${pathname === '/overview' ? 'text-indigo-600' : 'text-slate-400'}`} />
+            <span className="font-medium">总览</span>
+          </button>
 
           {/* Workspace Views Section */}
           <div className={`flex flex-col ${isChatsOpen ? 'flex-shrink-0 max-h-[40%]' : 'flex-1 min-h-0'}`}>
