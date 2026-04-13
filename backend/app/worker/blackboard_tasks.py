@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy import create_engine, text
 
 from app.core.config import settings
+from app.core.async_bridge import run_async_from_sync
 from app.blackboard.models import BlackboardData
 from app.blackboard.agent import run_blackboard_agent
 from app.worker import celery_app
@@ -42,7 +43,7 @@ def generate_blackboard_task(blackboard_id: int, topic: str, org_schema: str | N
         db.commit()
 
         # 2. Run the blackboard LangGraph agent
-        steps_data = asyncio.run(run_blackboard_agent(topic))
+        steps_data = run_async_from_sync(run_blackboard_agent(topic))
 
         # 3. Save result and update status
         bb_record.content_json = json.dumps(steps_data, ensure_ascii=False)

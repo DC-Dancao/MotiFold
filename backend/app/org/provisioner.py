@@ -7,6 +7,7 @@ from sqlalchemy import text
 from app.core.database import engine, AsyncSessionLocal
 import logging
 import re
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -38,14 +39,18 @@ async def provision_org_schema(org_slug: str) -> None:
             """), {"template_schema": TEMPLATE_SCHEMA})
             tables = [row[0] for row in tables_result.fetchall()]
 
-            # Clone each table structure (LIKE creates table with same structure, indexes, constraints)
-            for table in tables:
-                clone_sql = text(f'''
+            # Clone all tables concurrently to minimize total round-trip time
+            # Each table creation is an independent operation, so parallelizing
+            # them reduces overall provisioning latency while keeping transaction safety
+            create_tasks = [
+                conn.execute(text(f'''
                     CREATE TABLE "{schema_name}"."{table}"
                     (LIKE "{TEMPLATE_SCHEMA}"."{table}" INCLUDING ALL)
-                ''')
-                await conn.execute(clone_sql)
-                logger.info(f"Cloned table {table} to {schema_name}")
+                '''))
+                for table in tables
+            ]
+            await asyncio.gather(*create_tasks)
+            logger.info(f"Cloned {len(tables)} tables to {schema_name}")
 
         # Update status to active
         async with AsyncSessionLocal() as session:

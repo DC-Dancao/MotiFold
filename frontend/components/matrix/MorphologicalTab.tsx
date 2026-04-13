@@ -4,7 +4,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Sparkles, Loader2, RefreshCw, Save, Trash2, FolderOpen, Maximize2, Minimize2, Edit2, AlertTriangle } from 'lucide-react';
 import ReactECharts from 'echarts-for-react';
-import { fetchWithAuth, getApiUrl } from '../../app/lib/api';
+import { fetchWithAuth, getApiUrl, streamSSE, SSECancelFn } from '../../app/lib/api';
 import Tab4Convergence from './Tab4Convergence';
 
 const subTabs = ['定义问题', '交叉一致性评估', '解空间可视化', '方案收敛'];
@@ -83,7 +83,7 @@ export default function MorphologicalTab() {
   const [isLoadingSaved, setIsLoadingSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [currentAnalysisId, setCurrentAnalysisId] = useState<number | null>(null);
-  const [matrixEventSource, setMatrixEventSource] = useState<EventSource | null>(null);
+  const [matrixEventSource, setMatrixEventSource] = useState<SSECancelFn | null>(null);
   const [sseRetryCount, setSseRetryCount] = useState(0);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -179,8 +179,32 @@ export default function MorphologicalTab() {
   };
 
   const handleGenerateParams = async () => {
-    const inputDesc = focusQuestion.trim();
-    if (!inputDesc || analysisStatus === 'generating_parameters') return;
+    const problemDesc = problemDescription.trim();
+    let effectiveFocusQuestion = focusQuestion.trim();
+
+    // If focusQuestion is not yet set but problemDescription is, extract it first
+    if (!effectiveFocusQuestion && problemDesc) {
+      setIsExtracting(true);
+      try {
+        const apiUrl = getApiUrl();
+        const res = await fetchWithAuth(`${apiUrl}/matrix/morphological/extract-question`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ problem_description: problemDesc })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          effectiveFocusQuestion = data.focus_question;
+          setFocusQuestion(effectiveFocusQuestion);
+        }
+      } catch (error) {
+        console.error("Failed to extract focus question", error);
+      } finally {
+        setIsExtracting(false);
+      }
+    }
+
+    if (!effectiveFocusQuestion || analysisStatus === 'generating_parameters') return;
 
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
@@ -195,12 +219,12 @@ export default function MorphologicalTab() {
       const res = await fetchWithAuth(`${apiUrl}/matrix/morphological/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          focus_question: inputDesc,
+        body: JSON.stringify({
+          focus_question: effectiveFocusQuestion,
           workspace_id: workspaceId
         })
       });
-      
+
       if (res.ok) {
         const data = await res.json();
         setCurrentAnalysisId(data.id);
@@ -209,7 +233,7 @@ export default function MorphologicalTab() {
         setParameters([]);
         setMatrixData({}); // reset matrix
         setSelectedStates({});
-        
+
         // Force refresh the LeftSidebar history list
         window.dispatchEvent(new Event('refresh-morphological-history'));
         // Wait for notification to refresh data
@@ -500,25 +524,10 @@ export default function MorphologicalTab() {
       return;
     }
 
-    const apiUrl = getApiUrl();
-    const streamUrl = `${apiUrl}/matrix/morphological/${currentAnalysisId}/stream`;
-    const es = new EventSource(streamUrl, { withCredentials: true });
-    setMatrixEventSource(es);
-
-    es.onmessage = (event) => {
-      if (event.data === '[DONE]') {
-        es.close();
-        setMatrixEventSource(null);
-        setSseRetryCount(0);
-        return;
-      }
-
-      try {
-        let raw = event.data;
-        if (raw.startsWith('"') && raw.endsWith('"')) raw = JSON.parse(raw);
-        const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
-
-        const eventType = data.type || data.event || '';
+    const streamUrl = `/matrix/morphological/${currentAnalysisId}/stream`;
+    const es = streamSSE(streamUrl, {
+      onMessage: (data) => {
+        const eventType = (data.type || data.event || '') as string;
 
         // Handle rejoin event — load state from SSE
         if (eventType === 'rejoin') {
@@ -531,16 +540,16 @@ export default function MorphologicalTab() {
             } catch (e) {
               console.error("Failed to parse parameters", e);
             }
-            setParameters(parsedParams);
+            setParameters(parsedParams as Parameter[]);
           }
-          if (data.matrix) setMatrixData(data.matrix);
-          if (data.status) setAnalysisStatus(data.status);
-          if (data.focus_question) setFocusQuestion(data.focus_question);
+          if (data.matrix) setMatrixData(data.matrix as MatrixData);
+          if (data.status) setAnalysisStatus(data.status as string);
+          if (data.focus_question) setFocusQuestion(data.focus_question as string);
           return;
         }
 
         if (eventType === 'status') {
-          if (data.status) setAnalysisStatus(data.status);
+          if (data.status) setAnalysisStatus(data.status as string);
         } else if (eventType === '[DONE]') {
           if (data.parameters) {
             let parsedParams = data.parameters;
@@ -551,62 +560,58 @@ export default function MorphologicalTab() {
             } catch (e) {
               console.error("Failed to parse parameters", e);
             }
-            setParameters(parsedParams);
+            setParameters(parsedParams as Parameter[]);
           }
-          if (data.matrix) setMatrixData(data.matrix);
-          if (data.status) setAnalysisStatus(data.status);
+          if (data.matrix) setMatrixData(data.matrix as MatrixData);
+          if (data.status) setAnalysisStatus(data.status as string);
           if (data.error) {
             console.error("Matrix generation error:", data.error);
           }
-          es.close();
+          setIsGeneratingParams(false);
+          es.cancel();
           setMatrixEventSource(null);
           setSseRetryCount(0);
-          // Refresh history for sidebar
           window.dispatchEvent(new Event('refresh-morphological-history'));
         } else if (eventType === 'error') {
-          console.error("Matrix SSE error:", data.message || data.error);
-          es.close();
+          console.error("Matrix SSE error:", (data.message || data.error) as string);
+          es.cancel();
           setMatrixEventSource(null);
         }
-      } catch (e) {
-        console.warn('Failed to parse SSE event:', e);
-      }
-    };
+      },
+      onDone: () => {
+        setMatrixEventSource(null);
+        setSseRetryCount(0);
+      },
+      onError: () => {
+        if (retryTimeoutRef.current) {
+          clearTimeout(retryTimeoutRef.current);
+          retryTimeoutRef.current = null;
+        }
 
-    es.onerror = () => {
-      // Clear any pending retry
-      if (retryTimeoutRef.current) {
-        clearTimeout(retryTimeoutRef.current);
-        retryTimeoutRef.current = null;
-      }
+        // Retry up to 5 times
+        const maxRetries = 5;
+        if (sseRetryCount < maxRetries &&
+            (analysisStatus === 'generating_parameters' || analysisStatus === 'evaluating_matrix')) {
+          const delay = Math.min(1000 * Math.pow(2, sseRetryCount), 30000);
+          setSseRetryCount(prev => prev + 1);
 
-      es.close();
+          retryTimeoutRef.current = setTimeout(() => {
+            setMatrixEventSource(null);
+          }, delay);
+          return;
+        }
 
-      // Only retry if still in a state that needs SSE
-      const maxRetries = 5;
-      if (sseRetryCount < maxRetries &&
-          (analysisStatus === 'generating_parameters' || analysisStatus === 'evaluating_matrix')) {
-        const delay = Math.min(1000 * Math.pow(2, sseRetryCount), 30000);
-        setSseRetryCount(prev => prev + 1);
+        setMatrixEventSource(null);
+      },
+    });
+    setMatrixEventSource(es);
 
-        retryTimeoutRef.current = setTimeout(() => {
-          // Close current and trigger reconnection by clearing the event source
-          es.close();
-          setMatrixEventSource(null);
-        }, delay);
-        return; // Don't set matrixEventSource to null if retrying
-      }
-
-      setMatrixEventSource(null);
-    };
-
-    // Cleanup on unmount or when currentAnalysisId changes
     return () => {
       if (retryTimeoutRef.current) {
         clearTimeout(retryTimeoutRef.current);
         retryTimeoutRef.current = null;
       }
-      es.close();
+      es.cancel();
       setMatrixEventSource(null);
     };
   }, [currentAnalysisId, analysisStatus, sseRetryCount]);
@@ -914,11 +919,11 @@ export default function MorphologicalTab() {
             </span>
             <button 
               onClick={handleGenerateParams}
-              disabled={isGeneratingParams || !focusQuestion.trim()}
+              disabled={isExtracting || isGeneratingParams || (!focusQuestion.trim() && !problemDescription.trim())}
               className="bg-indigo-600 text-white px-6 py-3 rounded-xl font-medium hover:bg-indigo-700 transition flex items-center shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isGeneratingParams ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : null}
-              {isGeneratingParams ? '正在生成...' : '生成形态分析'}
+              {isExtracting || isGeneratingParams ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : null}
+              {isExtracting ? '正在提取...' : isGeneratingParams ? '正在生成...' : '生成形态分析'}
             </button>
           </div>
         </div>
@@ -974,11 +979,11 @@ export default function MorphologicalTab() {
             <div className="flex items-center space-x-4 mb-4">
               <button 
                 onClick={handleGenerateParams}
-                disabled={isGeneratingParams || analysisStatus === 'generating_parameters'}
+                disabled={isExtracting || isGeneratingParams || analysisStatus === 'generating_parameters' || (!focusQuestion.trim() && !problemDescription.trim())}
                 className="bg-indigo-50 text-indigo-700 px-4 py-2.5 rounded-lg font-medium hover:bg-indigo-100 transition flex items-center disabled:opacity-50"
               >
-                {isGeneratingParams || analysisStatus === 'generating_parameters' ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Sparkles className="w-5 h-5 mr-2" />}
-                {analysisStatus === 'generating_parameters' ? '正在后台生成参数与状态...' : '利用 LLM 重新提取'}
+                {isExtracting || isGeneratingParams || analysisStatus === 'generating_parameters' ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Sparkles className="w-5 h-5 mr-2" />}
+                {isExtracting ? '正在提取核心问题...' : analysisStatus === 'generating_parameters' ? '正在后台生成参数与状态...' : '利用 LLM 重新提取'}
               </button>
               <span className="text-sm text-slate-500">遵循 7×7 经验法则，限制参数和状态数量</span>
             </div>
@@ -1057,41 +1062,6 @@ export default function MorphologicalTab() {
                   ))}
                 </tbody>
               </table>
-              <div className="mt-4 flex gap-2">
-                {parameters.map((p, pIdx) => (
-                  <div key={pIdx} className="flex items-center gap-2">
-                    <span className="text-xs text-slate-500">{p.name}:</span>
-                    <button
-                      onClick={() => {
-                        if (p.states.length < 7) {
-                          setParameters(prev => prev.map((param, pi) => {
-                            if (pi !== pIdx) return param;
-                            return { ...param, states: [...param.states, "新状态"] };
-                          }));
-                        }
-                      }}
-                      disabled={p.states.length >= 7}
-                      className="text-xs px-2 py-1 bg-green-50 text-green-700 rounded hover:bg-green-100 disabled:opacity-50"
-                    >
-                      + 状态
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (p.states.length > 3) {
-                          setParameters(prev => prev.map((param, pi) => {
-                            if (pi !== pIdx) return param;
-                            return { ...param, states: param.states.slice(0, -1) };
-                          }));
-                        }
-                      }}
-                      disabled={p.states.length <= 3}
-                      className="text-xs px-2 py-1 bg-red-50 text-red-700 rounded hover:bg-red-100 disabled:opacity-50"
-                    >
-                      - 状态
-                    </button>
-                  </div>
-                ))}
-              </div>
               {orthogonalityWarnings.length > 0 && (
                 <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
                   <div className="flex items-center gap-2 mb-2">
@@ -1238,7 +1208,7 @@ export default function MorphologicalTab() {
                 </button>
               </div>
             </div>
-            <div className="flex-1 min-h-0 p-3 sm:p-5">
+            <div className="flex-1 min-h-0 overflow-auto p-3 sm:p-5">
               {renderCrossConsistencyMatrix(true)}
             </div>
           </div>

@@ -13,6 +13,7 @@ from langgraph.types import Command
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.core.async_bridge import run_async_from_sync
 from app.llm.checkpointer import SYNC_DB_URL, ensure_checkpointer_ready
 from app.research.agent import build_graph, level_defaults_for
 from app.research.models import ResearchReport
@@ -40,6 +41,7 @@ def process_research(
     max_iterations: int | None,
     max_results: int | None,
     user_id: int | None = None,
+    org_schema: str | None = None,
 ):
     """
     Run the deep research agent for a given query.
@@ -166,6 +168,9 @@ def process_research(
         saved_report_id = None
         try:
             async with AsyncSessionLocal() as db:
+                if org_schema:
+                    from sqlalchemy import text
+                    await db.execute(text(f'SET LOCAL search_path TO "{org_schema}", public'))
                 from sqlalchemy import update, select
                 # Update the existing record (created when task started)
                 stmt = (
@@ -228,7 +233,7 @@ def process_research(
             redis_client.publish(channel, json.dumps(notification))
             redis_client.close()
 
-    asyncio.run(_run())
+    run_async_from_sync(_run())
 
 
 @celery_app.task(name="process_research_loop")
@@ -240,6 +245,7 @@ def process_research_loop(
     max_iterations: int | None,
     max_results: int | None,
     user_id: int | None = None,
+    org_schema: str | None = None,
 ):
     """
     Start the research graph for the confirmation loop.
@@ -338,6 +344,9 @@ def process_research_loop(
         # Update DB record on completion
         try:
             async with AsyncSessionLocal() as db:
+                if org_schema:
+                    from sqlalchemy import text
+                    await db.execute(text(f'SET LOCAL search_path TO "{org_schema}", public'))
                 from sqlalchemy import update
                 stmt = (
                     update(ResearchReport)
@@ -358,7 +367,7 @@ def process_research_loop(
         await publish_event(thread_id, {"type": "done", "final_report": final_report})
         await clear_processing_flag(task_id)
 
-    asyncio.run(_run())
+    run_async_from_sync(_run())
 
 
 @celery_app.task(name="resume_research_task")
@@ -366,6 +375,7 @@ def resume_research_task(
     task_id: str,
     thread_id: str,
     action: str | dict,
+    org_schema: str | None = None,
 ):
     """
     Resume a research graph after user action.
@@ -404,6 +414,9 @@ def resume_research_task(
 
             try:
                 async with AsyncSessionLocal() as db:
+                    if org_schema:
+                        from sqlalchemy import text
+                        await db.execute(text(f'SET LOCAL search_path TO "{org_schema}", public'))
                     from sqlalchemy import update
                     stmt = (
                         update(ResearchReport)
@@ -423,4 +436,4 @@ def resume_research_task(
 
             await publish_event(thread_id, {"type": "done", "final_report": final_report})
 
-    asyncio.run(_run())
+    run_async_from_sync(_run())

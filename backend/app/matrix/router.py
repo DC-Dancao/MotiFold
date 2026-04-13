@@ -106,13 +106,13 @@ async def generate_morphological(
             status="generating_parameters"
         )
         db.add(analysis)
-        await db.commit()
-        await db.refresh(analysis)
-        
+        await db.flush()
+
         # Enqueue the Celery task
         org_schema = getattr(request.state, 'org_schema', None)
         generate_morphological_task.delay(analysis.id, org_schema)
-        
+        await db.commit()
+
         return GenerateMorphologicalResponse(
             id=analysis.id,
             focus_question=analysis.focus_question,

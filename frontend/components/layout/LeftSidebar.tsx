@@ -110,14 +110,14 @@ export default function LeftSidebar() {
     }
   }, []);
 
-  const fetchChats = useCallback(async (currentSkip = 0, append = false, workspaceId = activeWorkspaceId) => {
+  const fetchChats = useCallback(async (currentSkip = 0, append = false, workspaceId?: number) => {
     try {
       if (!append) {
         setIsLoadingChats(true);
       } else {
         setIsFetchingMore(true);
       }
-      
+
       const apiUrl = getApiUrl();
       const wsQuery = workspaceId ? `&workspace_id=${workspaceId}` : '';
       const res = await fetchWithAuth(`${apiUrl}/chats/?skip=${currentSkip}&limit=${LIMIT}${wsQuery}`);
@@ -125,7 +125,7 @@ export default function LeftSidebar() {
       if (res.ok) {
         const data = await res.json();
         const fetchedChats = Array.isArray(data) ? data : data.items ?? [];
-        
+
         if (append) {
           setChats(prev => {
             // Filter out any duplicates just in case
@@ -136,7 +136,7 @@ export default function LeftSidebar() {
         } else {
           setChats(fetchedChats);
         }
-        
+
         setHasMore(fetchedChats.length === LIMIT);
       }
     } catch (error) {
@@ -145,12 +145,12 @@ export default function LeftSidebar() {
       setIsLoadingChats(false);
       setIsFetchingMore(false);
     }
-  }, [activeWorkspaceId]);
+  }, []);
 
-  const refreshChats = useCallback((workspaceId = activeWorkspaceId) => {
+  const refreshChats = useCallback((workspaceId?: number) => {
     setSkip(0);
     fetchChats(0, false, workspaceId);
-  }, [fetchChats, activeWorkspaceId]);
+  }, [fetchChats]);
 
   useEffect(() => {
     const fetchWorkspaces = async () => {
@@ -471,7 +471,51 @@ export default function LeftSidebar() {
 
   const activeWorkspace = workspaces.find(w => w.id === activeWorkspaceId);
 
-  const handleSelectOrg = (org: typeof organizations[0]) => {
+  const handleSelectOrg = async (org: typeof organizations[0]) => {
+    // If org is still provisioning, poll until it's active or failed
+    if (org.status === 'provisioning') {
+      setCurrentOrg(org);
+      setIsOrgDropdownOpen(false);
+
+      // Poll org status until provisioning completes
+      const apiUrl = getApiUrl();
+      let attempts = 0;
+      const maxAttempts = 30; // 30 seconds max wait
+
+      while (attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        attempts++;
+
+        try {
+          const res = await fetchWithAuth(`${apiUrl}/api/orgs/${org.slug}`, { credentials: 'include' });
+          if (res.ok) {
+            const updatedOrg: typeof organizations[0] = await res.json();
+            if (updatedOrg.status === 'active') {
+              setCurrentOrg(updatedOrg);
+              break;
+            } else if (updatedOrg.status === 'failed') {
+              setCurrentOrg(updatedOrg);
+              alert('组织创建失败，请重试');
+              return;
+            }
+          }
+        } catch (e) {
+          console.error('Failed to poll org status', e);
+        }
+      }
+
+      if (attempts >= maxAttempts) {
+        alert('组织创建超时，请刷新页面重试');
+      }
+
+      // Refresh data after org change
+      setSkip(0);
+      setChats([]);
+      setActiveWorkspaceId(null);
+      setWorkspaces([]);
+      return;
+    }
+
     setCurrentOrg(org);
     setIsOrgDropdownOpen(false);
     // Refresh data after org change
@@ -551,7 +595,7 @@ export default function LeftSidebar() {
             className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-bold text-xl shadow-lg shadow-indigo-500/30 hover:bg-indigo-500 transition-colors"
             title={currentOrg?.name || 'Select Org'}
           >
-            {isLoadingOrgs ? (
+            {isLoadingOrgs || currentOrg?.status === 'provisioning' ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
               currentOrg?.name?.substring(0, 2).toUpperCase() || 'M'

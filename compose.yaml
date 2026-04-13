@@ -33,7 +33,7 @@ services:
   db-migration:
     build:
       context: ./backend
-      target: prod
+      target: migration
     env_file:
       - ./backend/.env
     depends_on:

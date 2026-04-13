@@ -145,7 +145,7 @@ def apply_consistency_results(
 
 async def generate_morphological_parameters(focus_question: str) -> GenerateMorphologicalLLMResponse:
     llm = get_llm(model_name=settings.OPENAI_MODEL_PRO, streaming=True)
-    structured_llm = llm.with_structured_output(LLMGenerateMorphologicalResponse, method="json_schema", strict=True)
+    structured_llm = llm.with_structured_output(LLMGenerateMorphologicalResponse, method="function_calling")
 
     system_prompt = """You are an expert in Morphological Analysis.
 Based on the user's focus question, extract key parameters (dimensions) and their possible states.
@@ -173,7 +173,7 @@ Ensure exactly 7 parameters and exactly 7 states per parameter."""
                 raise ValueError("LLM returned None instead of the expected structured output schema. Please use the appropriate schema format.")
             
             return normalize_morphological_response(response)
-        except (ValidationError, ValueError) as e:
+        except (ValidationError, ValueError, json.JSONDecodeError) as e:
             last_error = e
             if attempt < 2:
                 messages.append(HumanMessage(
@@ -185,7 +185,7 @@ Ensure exactly 7 parameters and exactly 7 states per parameter."""
 
 async def evaluate_morphological_consistency(parameters: List[MorphologicalParameter]) -> Dict[str, Any]:
     llm = get_llm(model_name=settings.OPENAI_MODEL_PRO, streaming=True)
-    structured_llm = llm.with_structured_output(BatchEvaluateConsistencyResponse, method="json_schema", strict=True)
+    structured_llm = llm.with_structured_output(BatchEvaluateConsistencyResponse, method="function_calling")
     comparison_table, pair_order = build_consistency_table(parameters)
 
     system_prompt = """You are an expert in Cross-Consistency Assessment for Morphological Analysis.
@@ -261,7 +261,7 @@ Rows not listed are treated as "green."""
 async def check_orthogonality(parameters: List[MorphologicalParameter]) -> Dict[str, Any]:
     """Check if parameters are orthogonal (non-overlapping)."""
     llm = get_llm(model_name=settings.OPENAI_MODEL_PRO, streaming=False)
-    structured_llm = llm.with_structured_output(OrthogonalityCheckResponse, method="json_schema", strict=True)
+    structured_llm = llm.with_structured_output(OrthogonalityCheckResponse, method="function_calling")
 
     system_prompt = """You are an expert in Morphological Analysis.
 Analyze the given parameters for orthogonality - parameters should be independent and not overlap in definition.
@@ -346,7 +346,7 @@ async def cluster_solutions(
         return []
 
     llm = get_llm(model_name=settings.OPENAI_MODEL_PRO, streaming=False)
-    structured_llm = llm.with_structured_output(ClusterResponse, method="json_schema", strict=True)
+    structured_llm = llm.with_structured_output(ClusterResponse, method="function_calling")
 
     # Prepare solution descriptions (truncate for LLM)
     solution_descs = []
@@ -380,7 +380,7 @@ async def suggest_ahp_weights(
 ) -> List[Dict[str, float]]:
     """Suggest initial AHP weights based on context."""
     llm = get_llm(model_name=settings.OPENAI_MODEL_PRO, streaming=False)
-    structured_llm = llm.with_structured_output(AHPCriteriaResponse, method="json_schema", strict=True)
+    structured_llm = llm.with_structured_output(AHPCriteriaResponse, method="function_calling")
 
     system_prompt = """Given this morphological analysis problem, suggest 4-5 evaluation criteria with weights.
 Common criteria: Cost, Implementation Time, Risk, Performance, Scalability, Maintainability.

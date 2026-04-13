@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getApiUrl } from "../../app/lib/api";
-import { Bell, X, CheckCircle, Loader2, AlertCircle } from "lucide-react";
+import { Bell, X, CheckCircle, AlertCircle } from "lucide-react";
 
 interface NotificationEvent {
   type: string;
@@ -24,54 +23,122 @@ export default function GlobalNotification() {
     const isLoginPage = typeof window !== 'undefined' && window.location.pathname.startsWith('/login');
     if (isLoginPage) return;
 
-    const apiUrl = getApiUrl();
-    const streamUrl = `${apiUrl}/notifications/stream`;
-    const eventSource = new EventSource(streamUrl, { withCredentials: true });
+    const streamUrl = '/notifications/stream';
+    let aborted = false;
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
 
-    eventSource.onmessage = (event) => {
+    let connectAttempts = 0;
+
+    const connect = async () => {
+      if (aborted) return;
+
       try {
-        const data = JSON.parse(event.data) as NotificationEvent;
-        
-        // Basic payload filtering
-        if (!data.title || !data.message || !data.resource_type) {
-          return;
-        }
+        const response = await fetch(streamUrl, {
+          credentials: 'include',
+        });
 
-        const newNotif = { ...data, id: Date.now().toString() };
-        
-        // Show in-app toast
-        setNotifications(prev => [...prev, newNotif]);
-        
-        // Dispatch event for other components
-        window.dispatchEvent(new CustomEvent('global-notification', { detail: data }));
-
-        // Browser Native Notification if tab is hidden
-        if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
-          const notification = new Notification(data.title, { body: data.message });
-          if (data.link) {
-            notification.onclick = () => {
-              window.focus();
-              window.location.href = data.link!;
-            };
+        if (!response.ok) {
+          if (response.status === 401) {
+            // Let page-level auth own redirects; don't start a navigation loop from SSE.
+            return;
           }
+          throw new Error(`SSE connection failed: ${response.status}`);
         }
 
-        // Auto remove after 5 seconds
-        setTimeout(() => {
-          setNotifications(prev => prev.filter(n => n.id !== newNotif.id));
-        }, 5000);
-      } catch (e) {
-        console.error("Failed to parse notification", e);
+        if (!response.body) {
+          throw new Error('No response body');
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        const readStream = () => {
+          reader.read().then(({ done, value }) => {
+            if (done || aborted) {
+              if (!aborted) {
+                // Connection closed, try to reconnect after a delay
+                retryTimeout = setTimeout(connect, 3000);
+              }
+              return;
+            }
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                try {
+                  const data = JSON.parse(line.slice(6)) as NotificationEvent;
+
+                  // Basic payload filtering
+                  if (!data.title || !data.message || !data.resource_type) {
+                    return;
+                  }
+
+                  const newNotif = { ...data, id: Date.now().toString() };
+
+                  // Show in-app toast
+                  setNotifications(prev => [...prev, newNotif]);
+
+                  // Dispatch event for other components
+                  window.dispatchEvent(new CustomEvent('global-notification', { detail: data }));
+
+                  // Browser Native Notification if tab is hidden
+                  if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+                    const notification = new Notification(data.title, { body: data.message });
+                    if (data.link) {
+                      notification.onclick = () => {
+                        window.focus();
+                        window.location.href = data.link!;
+                      };
+                    }
+                  }
+
+                  // Auto remove after 5 seconds
+                  setTimeout(() => {
+                    setNotifications(prev => prev.filter(n => n.id !== newNotif.id));
+                  }, 5000);
+                } catch (e) {
+                  console.warn("Failed to parse notification", e);
+                }
+              }
+            }
+
+            if (!aborted) {
+              readStream();
+            }
+          }).catch((err) => {
+            if (!aborted) {
+              console.warn("Notification SSE read error, reconnecting...", err);
+              retryTimeout = setTimeout(connect, 3000);
+            }
+          });
+        };
+
+        readStream();
+      } catch (err) {
+        if (!aborted) {
+          // Only log on subsequent retries, not initial attempts (auth may not be ready)
+          if (connectAttempts > 0) {
+            console.warn("Notification SSE connection error, retrying...", err);
+          }
+          connectAttempts++;
+          retryTimeout = setTimeout(connect, 3000);
+        }
       }
     };
 
-    eventSource.onerror = (err) => {
-      console.error("Notification SSE error", err);
-      // It will auto-reconnect
-    };
+    // Delay initial connection to avoid race condition with auth on page load
+    const initialDelay = setTimeout(connect, 1000);
 
     return () => {
-      eventSource.close();
+      aborted = true;
+      if (retryTimeout) {
+        clearTimeout(retryTimeout);
+      }
+      clearTimeout(initialDelay);
     };
   }, []);
 

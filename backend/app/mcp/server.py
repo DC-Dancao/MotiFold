@@ -37,7 +37,22 @@ def get_current_org_schema() -> str | None:
 
 
 def _is_valid_org_slug(org_slug: str) -> bool:
-    return org_slug.replace("_", "").replace("-", "").isalnum()
+    """Validate org_slug to prevent search_path injection."""
+    if not org_slug:
+        return False
+    # Must be alphanumeric with underscores/dashes only, and not pure underscore/dash
+    if not (org_slug.replace("_", "").replace("-", "").isalnum() and org_slug.replace("_", "").replace("-", "")):
+        return False
+    # Must not start with digit
+    if org_slug[0].isdigit():
+        return False
+    # Reserved names that could cause issues
+    if org_slug.lower() in ("public", "pg_catalog", "information_schema"):
+        return False
+    # Length limit
+    if len(org_slug) > 64:
+        return False
+    return True
 
 
 def create_mcp_server() -> FastMCP:
@@ -117,7 +132,7 @@ class MCPMiddleware:
             self.mcp_app = mcp_app
         else:
             self.mcp_server = create_mcp_server()
-            self.mcp_app = self.mcp_server.http_app(transport="sse")
+            self.mcp_app = self.mcp_server.http_app(transport="streamable-http")
 
     def _get_header(self, scope: dict, name: str) -> str | None:
         """Extract a header value from ASGI scope."""
@@ -140,19 +155,19 @@ class MCPMiddleware:
             await self.app(scope, receive, send)
             return
 
-        # Extract auth token and org context from headers
+        # Extract auth token, API key, and org context from headers
         auth_header = self._get_header(scope, "Authorization")
+        api_key_header = self._get_header(scope, "X-API-Key")
         org_slug = self._get_header(scope, "X-Org-ID")
         auth_token: str | None = None
         if auth_header:
             auth_token = auth_header[7:].strip() if auth_header.startswith("Bearer ") else auth_header.strip()
 
-        if not auth_token:
-            # No Bearer token provided — reject if MOTIFOLD_MCP_AUTH_TOKEN is configured
-            # (env var makes token required; otherwise fall through to inner app)
-            if os.environ.get("MOTIFOLD_MCP_AUTH_TOKEN"):
-                await self._send_error(send, 401, "Authorization header required")
-                return
+        # Determine if auth is required
+        has_auth = bool(auth_token) or bool(api_key_header)
+        if not has_auth and os.environ.get("MOTIFOLD_MCP_AUTH_TOKEN"):
+            await self._send_error(send, 401, "Authorization header or X-API-Key required")
+            return
 
         if not org_slug:
             await self._send_error(send, 400, "X-Org-ID header required")
@@ -161,16 +176,38 @@ class MCPMiddleware:
             await self._send_error(send, 400, "Invalid org slug format")
             return
 
-        # Authenticate token and validate org membership
-        user_id = None
+        # Authenticate and validate org membership
+        user_id: int | None = None
+        org_id_from_key: int | None = None
         try:
             async with AsyncSessionLocal() as session:
-                local_api_key = os.environ.get("MOTIFOLD_MCP_AUTH_TOKEN")
-                if auth_token:
+                # 1. API key auth (takes precedence)
+                if api_key_header:
+                    import hashlib
+                    from datetime import datetime, UTC
+                    from app.auth.models import ApiKey
+                    key_hash = hashlib.sha256(api_key_header.encode()).hexdigest()
+                    key_result = await session.execute(
+                        select(ApiKey).where(ApiKey.key_hash == key_hash)
+                    )
+                    api_key = key_result.scalars().first()
+                    if not api_key:
+                        await self._send_error(send, 401, "Invalid API key")
+                        return
+                    if api_key.expires_at and api_key.expires_at < datetime.now(UTC):
+                        await self._send_error(send, 401, "API key expired")
+                        return
+                    user_id = api_key.user_id
+                    org_id_from_key = api_key.organization_id
+                    # Update last used
+                    api_key.last_used_at = datetime.now(UTC)
+                    await session.commit()
+
+                # 2. Bearer token auth
+                elif auth_token:
+                    local_api_key = os.environ.get("MOTIFOLD_MCP_AUTH_TOKEN")
                     if local_api_key and auth_token == local_api_key:
-                        # Local override for testing, we can pretend to be a superuser or the first user
-                        # We will assign user_id = 1 for local debugging if static token matches
-                        user_id = 1
+                        user_id = 1  # Local debug override
                     else:
                         user = await _get_user_by_token(auth_token, session)
                         user_id = user.id
@@ -180,7 +217,34 @@ class MCPMiddleware:
                     return
 
                 org_result = await session.execute(
-                    select(Organization).where(Organization.id == org_slug)
+                    select(Organization).where(Organization.slug == org_slug)
+                )
+                org = org_result.scalars().first()
+                if not org:
+                    await self._send_error(send, 404, "Organization not found")
+                    return
+                if org.status != "active":
+                    await self._send_error(send, 503, "Organization not active")
+                    return
+
+                # If auth was via API key, verify key belongs to this org
+                if org_id_from_key is not None and org_id_from_key != org.id:
+                    await self._send_error(send, 403, "API key not valid for this organization")
+                    return
+
+                membership_result = await session.execute(
+                    select(OrganizationMember).where(
+                        OrganizationMember.organization_id == org.id,
+                        OrganizationMember.user_id == user_id,
+                    )
+                )
+                membership = membership_result.scalars().first()
+                if not membership:
+                    await self._send_error(send, 403, "Not a member of this organization")
+                    return
+
+                org_result = await session.execute(
+                    select(Organization).where(Organization.slug == org_slug)
                 )
                 org = org_result.scalars().first()
                 if not org:
@@ -192,8 +256,8 @@ class MCPMiddleware:
 
                 membership_result = await session.execute(
                     select(OrganizationMember).where(
-                        OrganizationMember.organization_id == org_slug,
-                        OrganizationMember.user_id == str(user_id),
+                        OrganizationMember.organization_id == org.id,
+                        OrganizationMember.user_id == user_id,
                     )
                 )
                 membership = membership_result.scalars().first()
@@ -211,9 +275,8 @@ class MCPMiddleware:
 
         try:
             new_scope = scope.copy()
-            # Strip prefix from path for the mcp app routing
-            new_path = path[len(self.prefix) :] or "/"
-            new_scope["path"] = new_path
+            # Pass the original path to the MCP app.
+            new_scope["path"] = path
             new_scope["root_path"] = ""
 
             # Ensure Accept header includes required MIME types for MCP SDK.

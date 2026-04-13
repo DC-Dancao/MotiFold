@@ -65,22 +65,67 @@ export default function BlackboardArea() {
 
   // Listen for SSE notifications
   useEffect(() => {
-    const apiUrl = getApiUrl();
-    const eventSource = new EventSource(`${apiUrl}/notifications/stream`, { withCredentials: true });
+    let cancelled = false;
+    const controller = new AbortController();
 
-    eventSource.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === 'blackboard_updated' && activeBlackboardId === data.blackboard_id) {
-        if (data.status === 'completed' || data.status === 'failed') {
-          if (typeof activeBlackboardId === 'number') {
-            fetchBlackboardData(activeBlackboardId);
+    const connect = async () => {
+      try {
+        const response = await fetch('/notifications/stream', {
+          credentials: 'include',
+          signal: controller.signal,
+        });
+
+        if (!response.ok || !response.body) {
+          return;
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (!cancelled) {
+          const { done, value } = await reader.read();
+          if (done) {
+            break;
           }
+
+          buffer += decoder.decode(value, { stream: true });
+          const events = buffer.split('\n\n');
+          buffer = events.pop() || '';
+
+          for (const event of events) {
+            const dataLine = event
+              .split('\n')
+              .find(line => line.startsWith('data:'));
+
+            if (!dataLine) {
+              continue;
+            }
+
+            try {
+              const data = JSON.parse(dataLine.slice(5).trim());
+              if (data.type === 'blackboard_updated' && activeBlackboardId === data.blackboard_id) {
+                if ((data.status === 'completed' || data.status === 'failed') && typeof activeBlackboardId === 'number') {
+                  fetchBlackboardData(activeBlackboardId);
+                }
+              }
+            } catch (error) {
+              console.warn('Failed to parse blackboard notification', error);
+            }
+          }
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Blackboard notification stream failed', error);
         }
       }
     };
 
+    connect();
+
     return () => {
-      eventSource.close();
+      cancelled = true;
+      controller.abort();
     };
   }, [activeBlackboardId]);
 

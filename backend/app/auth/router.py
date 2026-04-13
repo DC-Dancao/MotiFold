@@ -4,9 +4,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from fastapi.security import OAuth2PasswordRequestForm
 from datetime import timedelta
+import secrets
+import hashlib
+import string
 
 from app.core.database import get_db
-from app.auth.models import User
+from app.auth.models import User, ApiKey
 from app.auth.schemas import UserCreate, UserOut, Token
 from app.core.security import get_password_hash, verify_password, create_access_token, create_refresh_token, _get_user_by_token
 from app.core.config import settings
@@ -142,3 +145,148 @@ async def refresh_token(
         "token_type": "bearer",
         "refresh_token": new_refresh_token
     }
+
+
+class ApiKeyCreate(BaseModel):
+    name: str | None = None
+    expires_days: int | None = None  # None = never expires
+
+
+class ApiKeyOut(BaseModel):
+    id: int
+    key_id: str
+    key_prefix: str
+    name: str | None
+    organization_id: int
+    expires_at: str | None
+    created_at: str
+
+
+class ApiKeyCreated(BaseModel):
+    """Only returned once when created."""
+    key: str  # the full API key (only time it's returned)
+    key_id: str
+    key_prefix: str
+
+
+@router.post("/api-key", response_model=ApiKeyCreated)
+async def create_api_key(
+    request: Request,
+    api_key_request: ApiKeyCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Generate a new API key for programmatic access.
+    The full key is only returned once — save it securely.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Bearer token required")
+
+    token = auth_header[7:]
+    try:
+        user = await _get_user_by_token(token, db)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    # Get user's default organization
+    from app.org.models import OrganizationMember
+    member_result = await db.execute(
+        select(OrganizationMember)
+        .where(OrganizationMember.user_id == user.id)
+        .order_by(OrganizationMember.joined_at)
+    )
+    member = member_result.scalars().first()
+    if not member:
+        raise HTTPException(status_code=400, detail="User has no organization")
+    org_id = member.organization_id
+
+    # Generate key: mk_live_<base64url>
+    raw_key = "mk_live_" + secrets.token_urlsafe(32)
+    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    key_id = raw_key[:12]  # "mk_live_xxxx"
+    key_prefix = raw_key[:12]
+
+    from datetime import datetime, timedelta, UTC
+    expires_at = None
+    if api_key_request.expires_days:
+        expires_at = datetime.now(UTC) + timedelta(days=api_key_request.expires_days)
+
+    db_key = ApiKey(
+        key_id=key_id,
+        key_hash=key_hash,
+        key_prefix=key_prefix,
+        name=api_key_request.name,
+        user_id=user.id,
+        organization_id=org_id,
+        expires_at=expires_at,
+    )
+    db.add(db_key)
+    await db.commit()
+
+    return ApiKeyCreated(key=raw_key, key_id=key_id, key_prefix=key_prefix)
+
+
+@router.get("/api-keys", response_model=list[ApiKeyOut])
+async def list_api_keys(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """List all API keys for the authenticated user (without secrets)."""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Bearer token required")
+
+    token = auth_header[7:]
+    try:
+        user = await _get_user_by_token(token, db)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    result = await db.execute(
+        select(ApiKey)
+        .where(ApiKey.user_id == user.id)
+        .order_by(ApiKey.created_at.desc())
+    )
+    keys = result.scalars().all()
+    return [
+        ApiKeyOut(
+            id=k.id,
+            key_id=k.key_id,
+            key_prefix=k.key_prefix,
+            name=k.name,
+            organization_id=k.organization_id,
+            expires_at=k.expires_at.isoformat() if k.expires_at else None,
+            created_at=k.created_at.isoformat(),
+        )
+        for k in keys
+    ]
+
+
+@router.delete("/api-key/{key_id}")
+async def delete_api_key(
+    key_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete an API key."""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Bearer token required")
+
+    token = auth_header[7:]
+    try:
+        user = await _get_user_by_token(token, db)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    result = await db.execute(
+        select(ApiKey).where(ApiKey.key_id == key_id, ApiKey.user_id == user.id)
+    )
+    key = result.scalars().first()
+    if not key:
+        raise HTTPException(status_code=404, detail="API key not found")
+
+    await db.delete(key)
+    await db.commit()
+    return {"status": "deleted", "key_id": key_id}

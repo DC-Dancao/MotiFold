@@ -64,12 +64,14 @@ def upgrade():
     op.execute("CREATE INDEX ix_blackboards_id ON template.blackboards (id)")
 
     # chats - from initial migration (note: column is 'title', not 'name')
+    # Plus model column from a1234567890
     op.execute("""
         CREATE TABLE template.chats (
             id SERIAL PRIMARY KEY,
             user_id INTEGER,
             workspace_id INTEGER,
             title VARCHAR,
+            model VARCHAR NOT NULL DEFAULT 'pro',
             created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         )
     """)

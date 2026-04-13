@@ -63,8 +63,25 @@ export default function MemoryArea() {
     loadData();
   }, [workspaceId]);
 
+  // Listen for workspace changes from sidebar
+  useEffect(() => {
+    const handleWorkspaceChanged = (e: CustomEvent) => {
+      if (e.detail?.workspaceId) {
+        loadData();
+      }
+    };
+    window.addEventListener('workspace-changed', handleWorkspaceChanged as EventListener);
+    return () => {
+      window.removeEventListener('workspace-changed', handleWorkspaceChanged as EventListener);
+    };
+  }, []);
+
   const loadData = async () => {
-    if (!workspaceId) return;
+    if (!workspaceId) {
+      setIsLoading(false);
+      setError('请先选择一个工作区');
+      return;
+    }
 
     setIsLoading(true);
     setError(null);

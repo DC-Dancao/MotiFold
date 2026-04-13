@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Bot, User, Paperclip, Send, ChevronDown } from 'lucide-react';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { fetchWithAuth, getApiUrl } from '../../app/lib/api';
+import { fetchWithAuth, getApiUrl, streamSSE, SSECancelFn } from '../../app/lib/api';
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -138,9 +138,12 @@ export default function ChatArea() {
               body: JSON.stringify({ content: msgToSend, idempotency_key: idempotencyKey, model: selectedModel })
             });
             if (msgRes.ok) {
-              const msgData = await msgRes.json();
-              const msgs = Array.isArray(msgData) ? msgData : msgData.items ?? [];
-              setMessages(msgs);
+              // POST only returns processing status, not messages — do NOT wipe optimistic messages
+              // Start SSE stream to receive the response
+              startChatStream(resolvedChatId);
+              return;
+            } else {
+              setIsLoading(false);
             }
           }
           return;
@@ -180,6 +183,97 @@ export default function ChatArea() {
     init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatIdParam, chatId, isNewChat]);
+  // Start SSE stream for chat response
+  const startChatStream = (resolvedChatId: number) => {
+    const streamUrl = `/chats/${resolvedChatId}/stream`;
+    const eventSource = new EventSource(streamUrl, { withCredentials: true });
+
+    let assistantMessageContent = '';
+    const tempAssistantId = Date.now() + 1;
+
+    setMessages(prev => [...prev, { id: tempAssistantId, role: 'assistant', content: '...' }]);
+
+    eventSource.addEventListener('title', (event) => {
+      const messageEvent = event as MessageEvent<string>;
+      let nextTitle = messageEvent.data;
+
+      try {
+        if (nextTitle.startsWith('"') && nextTitle.endsWith('"')) {
+          nextTitle = JSON.parse(nextTitle);
+        }
+      } catch (e) {
+        console.warn("Failed to parse title event", e);
+      }
+
+      if (!nextTitle) {
+        return;
+      }
+
+      setChatTitle(nextTitle);
+      dispatchChatTitleUpdated({ chatId: resolvedChatId, title: nextTitle });
+    });
+
+    eventSource.onmessage = (event) => {
+      if (event.data === '[DONE]') {
+        eventSource.close();
+        setIsLoading(false);
+
+        // Refetch title if it was "New Chat"
+        if (chatTitle === 'New Chat' || chatTitle === 'Loading...') {
+          fetchWithAuth(`${getApiUrl()}/chats/${resolvedChatId}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.title && data.title !== 'New Chat') {
+              setChatTitle(data.title);
+              dispatchChatTitleUpdated({
+                chatId: resolvedChatId,
+                title: data.title,
+                createdAt: data.created_at
+              });
+            }
+          })
+          .catch(console.error);
+        }
+        return;
+      }
+
+      try {
+        const rawData = event.data;
+        let text = rawData;
+        try {
+          // Try to parse if it's JSON encoded (to handle newlines correctly)
+          if (rawData.startsWith('"') && rawData.endsWith('"')) {
+            text = JSON.parse(rawData);
+          }
+        } catch (e) {
+          console.warn("Failed to parse JSON token", e);
+        }
+
+        if (assistantMessageContent === '' && text !== '') {
+          // Remove the initial '...' when first real token arrives
+          assistantMessageContent = text;
+        } else {
+          assistantMessageContent += text;
+        }
+
+        setMessages(prev => prev.map(msg =>
+          msg.id === tempAssistantId ? { ...msg, content: assistantMessageContent } : msg
+        ));
+      } catch (e) {
+        console.error("Error parsing SSE data", e);
+      }
+    };
+
+    eventSource.onerror = (error) => {
+      if (eventSource.readyState === EventSource.CLOSED) {
+        return;
+      }
+      console.error("SSE Error", error);
+      eventSource.close();
+      setIsLoading(false);
+    };
+  };
+
   const sendMessage = async () => {
     if (!input.trim() || !chatId || isLoading) return;
 
@@ -188,7 +282,7 @@ export default function ChatArea() {
     setIsLoading(true);
 
     const apiUrl = getApiUrl();
-    
+
     // Optimistic UI update
     const tempUserId = Date.now();
     setMessages(prev => [...prev, { id: tempUserId, role: 'user', content: userMessageContent }]);
@@ -211,7 +305,7 @@ export default function ChatArea() {
         if (!createRes.ok) throw new Error("Failed to create chat");
         const newChat = await createRes.json();
         actualChatId = newChat.id;
-        
+
         dispatchChatTitleUpdated({
           chatId: newChat.id,
           title: newChat.title || 'New Chat',
@@ -227,7 +321,7 @@ export default function ChatArea() {
       const resolvedChatId = typeof actualChatId === 'number' ? actualChatId : parseInt(actualChatId, 10);
 
       const idempotencyKey = `msg_${Date.now()}_${Math.random()}`;
-      
+
       const res = await fetchWithAuth(`${apiUrl}/chats/${resolvedChatId}/messages`, {
         method: 'POST',
         headers: {
@@ -246,95 +340,7 @@ export default function ChatArea() {
 
       if (!res.ok) throw new Error("Failed to send message");
 
-      // Setup SSE for stream
-      const streamUrl = `${apiUrl}/chats/${resolvedChatId}/stream`;
-        
-      const eventSource = new EventSource(streamUrl, { withCredentials: true });
-      
-      let assistantMessageContent = '';
-      const tempAssistantId = Date.now() + 1;
-      
-      setMessages(prev => [...prev, { id: tempAssistantId, role: 'assistant', content: '...' }]);
-
-      eventSource.addEventListener('title', (event) => {
-        const messageEvent = event as MessageEvent<string>;
-        let nextTitle = messageEvent.data;
-
-        try {
-          if (nextTitle.startsWith('"') && nextTitle.endsWith('"')) {
-            nextTitle = JSON.parse(nextTitle);
-          }
-        } catch (e) {
-          console.warn("Failed to parse title event", e);
-        }
-
-        if (!nextTitle) {
-          return;
-        }
-
-        setChatTitle(nextTitle);
-        dispatchChatTitleUpdated({ chatId: resolvedChatId, title: nextTitle });
-      });
-
-      eventSource.onmessage = (event) => {
-        if (event.data === '[DONE]') {
-          eventSource.close();
-          setIsLoading(false);
-          
-          // Refetch title if it was "New Chat"
-          if (chatTitle === 'New Chat' || chatTitle === 'Loading...') {
-            fetchWithAuth(`${apiUrl}/chats/${resolvedChatId}`)
-            .then(res => res.json())
-            .then(data => {
-              if (data.title && data.title !== 'New Chat') {
-                setChatTitle(data.title);
-                dispatchChatTitleUpdated({
-                  chatId: resolvedChatId,
-                  title: data.title,
-                  createdAt: data.created_at
-                });
-              }
-            })
-            .catch(console.error);
-          }
-          return;
-        }
-        
-        try {
-          const rawData = event.data;
-          let text = rawData;
-          try {
-            // Try to parse if it's JSON encoded (to handle newlines correctly)
-            if (rawData.startsWith('"') && rawData.endsWith('"')) {
-              text = JSON.parse(rawData);
-            }
-          } catch (e) {
-            console.warn("Failed to parse JSON token", e);
-          }
-          
-          if (assistantMessageContent === '' && text !== '') {
-            // Remove the initial '...' when first real token arrives
-            assistantMessageContent = text;
-          } else {
-            assistantMessageContent += text;
-          }
-          
-          setMessages(prev => prev.map(msg => 
-            msg.id === tempAssistantId ? { ...msg, content: assistantMessageContent } : msg
-          ));
-        } catch (e) {
-          console.error("Error parsing SSE data", e);
-        }
-      };
-
-      eventSource.onerror = (error) => {
-        if (eventSource.readyState === EventSource.CLOSED) {
-          return;
-        }
-        console.error("SSE Error", error);
-        eventSource.close();
-        setIsLoading(false);
-      };
+      startChatStream(resolvedChatId);
 
     } catch (e) {
       console.error("Failed to send message", e);

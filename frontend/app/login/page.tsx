@@ -3,8 +3,8 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Bot } from 'lucide-react';
-import { setAuthCookies } from '../../lib/auth-actions';
-import { resolveBrowserApiUrl } from '../../lib/api-base';
+import { setAuthCookies } from '../lib/auth-actions';
+import { resolveBrowserApiUrl } from '../lib/api-base';
 
 export default function LoginPage() {
   const [isLogin, setIsLogin] = useState(true);
@@ -29,7 +29,7 @@ export default function LoginPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username, password })
         });
-        
+
         if (!regRes.ok) {
           const data = await regRes.json();
           throw new Error(data.detail || 'Registration failed');
@@ -49,17 +49,16 @@ export default function LoginPage() {
       }
 
       const data = await loginRes.json();
-      
-      // Store in localStorage only username for UI display purposes if needed
-      // (Tokens are now securely stored ONLY in HttpOnly cookies)
+
       localStorage.setItem('motifold_username', username);
+      localStorage.removeItem('motifold_access_token');
 
       // Store in cookies for proxy/server-side access and backend auth
       await setAuthCookies(data.access_token, data.refresh_token, username);
-      
+
       // Redirect to main app
       router.push('/');
-      
+
     } catch (err) {
       if (err instanceof Error) {
         setError(err.message);
@@ -74,8 +73,8 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative">
       {/* Background Pattern */}
-      <div 
-        className="absolute inset-0 z-0 opacity-[0.02] pointer-events-none" 
+      <div
+        className="absolute inset-0 z-0 opacity-[0.02] pointer-events-none"
         style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '20px 20px' }}
       ></div>
 
@@ -90,8 +89,8 @@ export default function LoginPage() {
         </h2>
         <p className="mt-2 text-center text-sm text-slate-600">
           {isLogin ? '没有账号？' : '已有账号？'}{' '}
-          <button 
-            onClick={() => setIsLogin(!isLogin)} 
+          <button
+            onClick={() => setIsLogin(!isLogin)}
             className="font-medium text-indigo-600 hover:text-indigo-500 transition-colors"
           >
             {isLogin ? '立即注册' : '返回登录'}
@@ -108,16 +107,16 @@ export default function LoginPage() {
                 {error}
               </div>
             )}
-            
+
             <div>
               <label className="block text-sm font-medium text-slate-700">用户名</label>
               <div className="mt-1">
-                <input 
-                  type="text" 
-                  required 
+                <input
+                  type="text"
+                  required
                   value={username}
                   onChange={e => setUsername(e.target.value)}
-                  className="appearance-none block w-full px-3 py-2.5 border border-slate-300 rounded-xl shadow-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 sm:text-sm transition-all" 
+                  className="appearance-none block w-full px-3 py-2.5 border border-slate-300 rounded-xl shadow-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 sm:text-sm transition-all"
                   placeholder="输入用户名"
                 />
               </div>
@@ -126,20 +125,20 @@ export default function LoginPage() {
             <div>
               <label className="block text-sm font-medium text-slate-700">密码</label>
               <div className="mt-1">
-                <input 
-                  type="password" 
-                  required 
+                <input
+                  type="password"
+                  required
                   value={password}
                   onChange={e => setPassword(e.target.value)}
-                  className="appearance-none block w-full px-3 py-2.5 border border-slate-300 rounded-xl shadow-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 sm:text-sm transition-all" 
+                  className="appearance-none block w-full px-3 py-2.5 border border-slate-300 rounded-xl shadow-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 sm:text-sm transition-all"
                   placeholder="输入密码"
                 />
               </div>
             </div>
 
             <div>
-              <button 
-                type="submit" 
+              <button
+                type="submit"
                 disabled={isLoading || !username || !password}
                 className="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-xl shadow-md shadow-indigo-500/20 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               >
@@ -154,7 +153,7 @@ export default function LoginPage() {
               </button>
             </div>
           </form>
-          
+
           <div className="mt-6 flex items-center justify-center gap-2 text-xs text-slate-400">
             <Bot className="w-3.5 h-3.5" />
             Motifold AI 驱动的工作区

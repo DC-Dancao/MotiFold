@@ -36,12 +36,12 @@ async def create_blackboard(
         content_json="[]"
     )
     db.add(new_bb)
-    await db.commit()
-    await db.refresh(new_bb)
+    await db.flush()
 
     from app.worker.blackboard_tasks import generate_blackboard_task
     org_schema = getattr(request.state, 'org_schema', None)
     generate_blackboard_task.delay(new_bb.id, bb_create.topic, org_schema)
+    await db.commit()
 
     return BlackboardResponse(
         id=new_bb.id,

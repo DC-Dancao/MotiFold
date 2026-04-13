@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine, text
 
 from app.core.config import settings
+from app.core.async_bridge import run_async_from_sync
 from app.chat.models import Chat
 from app.chat.agent import run_agent
 from app.llm.factory import get_llm
@@ -68,7 +69,7 @@ def enrich_content_with_memory(session, workspace_id: int, content: str) -> str:
                 return memories
 
         # Run async memory lookup
-        memories = asyncio.run(_get_memories())
+        memories = run_async_from_sync(_get_memories())
 
         if memories:
             memory_context = "\n\n[相关记忆]\n" + "\n".join(
@@ -116,7 +117,7 @@ def store_conversation_in_memory(session, workspace_id: int, user_message: str, 
                     memory_type="fact",
                 )
 
-        asyncio.run(_store())
+        run_async_from_sync(_store())
         logger.debug(f"Stored conversation in memory for workspace {workspace_id}")
 
     except Exception as e:
@@ -193,7 +194,7 @@ def process_message(chat_id: int, content: str, org_schema: str | None = None, m
         try:
             # Use "auto" if model is "auto" or not set, otherwise use specific model
             model_override = None if (model == "auto" or model is None) else model
-            response = asyncio.run(run_agent(str(chat_id), enriched_content, token_callback, model=model_override))
+            response = run_async_from_sync(run_agent(str(chat_id), enriched_content, token_callback, model=model_override))
 
             # Store conversation in memory after successful response
             if workspace_id and response:
@@ -201,7 +202,7 @@ def process_message(chat_id: int, content: str, org_schema: str | None = None, m
 
             # Check if auto-title needed
             if chat.title == "New Chat":
-                update_chat_title(chat_id, content, db=db, publish=True)
+                generate_title.delay(chat_id, content)
 
             db.commit()
         except Exception as e:

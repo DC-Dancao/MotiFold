@@ -1,12 +1,12 @@
 import json
 import logging
-import asyncio
 import redis
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine, update, text
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.core.async_bridge import run_async_from_sync
 from app.matrix.models import MorphologicalAnalysis
 from app.matrix.schemas import MorphologicalParameter
 from app.matrix.service import generate_morphological_parameters, evaluate_morphological_consistency
@@ -74,7 +74,7 @@ def generate_morphological_task(analysis_id: int, org_schema: str | None = None)
 
         try:
             # Generate parameters
-            response = asyncio.run(generate_morphological_parameters(focus_question))
+            response = await generate_morphological_parameters(focus_question)
             parameters_data = [p.model_dump() for p in response.parameters]
             parameters_json = json.dumps(parameters_data)
             final_status = "parameters_ready"
@@ -168,7 +168,7 @@ def generate_morphological_task(analysis_id: int, org_schema: str | None = None)
         redis_client.publish(channel, json.dumps(notification))
         redis_client.close()
 
-    asyncio.run(_run())
+    run_async_from_sync(_run())
 
 
 @celery_app.task(name="evaluate_consistency_task")
@@ -223,7 +223,7 @@ def evaluate_consistency_task(analysis_id: int, org_schema: str | None = None):
             if not parameters:
                 raise ValueError("No parameters found")
 
-            response = asyncio.run(evaluate_morphological_consistency(parameters))
+            response = await evaluate_morphological_consistency(parameters)
             matrix_data = response.get("matrix", {})
             matrix_json = json.dumps(matrix_data)
             final_status = "matrix_ready"
@@ -317,4 +317,4 @@ def evaluate_consistency_task(analysis_id: int, org_schema: str | None = None):
         redis_client.publish(channel, json.dumps(notification))
         redis_client.close()
 
-    asyncio.run(_run())
+    run_async_from_sync(_run())

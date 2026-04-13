@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Search, Loader2, FileText, Trash2, RotateCcw, MoreHorizontal, HelpCircle, MessageSquare } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { fetchWithAuth, getApiUrl } from '../../app/lib/api';
+import { fetchWithAuth, getApiUrl, streamSSE, SSECancelFn } from '../../app/lib/api';
 
 // Deep Research confirmation loop types
 type DeepResearchStatus = 'idle' | 'streaming' | 'waiting_input' | 'complete' | 'error';
@@ -58,7 +58,7 @@ export default function ResearchArea() {
   const [clarifyQuestion, setClarifyQuestion] = useState<string | null>(null);
   const [finalReport, setFinalReport] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [eventSource, setEventSource] = useState<EventSource | null>(null);
+  const [eventSource, setEventSource] = useState<SSECancelFn | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Deep Research confirmation loop state
@@ -201,68 +201,56 @@ export default function ResearchArea() {
     }
 
     // Connect to SSE stream
-    const streamUrl = `${apiUrl}/research/${taskId}/stream`;
-    const es = new EventSource(streamUrl, { withCredentials: true });
-    setEventSource(es);
+    const streamUrl = `/research/${taskId}/stream`;
+    const es = streamSSE(streamUrl, {
+      onMessage: (data) => {
+        const raw = data.raw as string || '';
+        const eventType = (data.type || data.event || '') as string;
 
-    es.onmessage = (event) => {
-      if (event.data === '[DONE]') {
-        es.close();
-        setEventSource(null);
-        setIsRunning(false);
-        return;
-      }
-
-      try {
-        let raw = event.data;
-        if (raw.startsWith('"') && raw.endsWith('"')) raw = JSON.parse(raw);
-        const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
-
-        const eventType = data.type || data.event || '';
-
-        // Handle rejoin event — merge persisted state
         if (eventType === 'rejoin') {
-          if (data.notes) setNotes(data.notes.map((n: string, i: number) => ({ iteration: i, content: n })));
-          if (data.queries) setQueries(data.queries);
-          if (data.research_topic) setResearchTopic(data.research_topic);
-          if (data.message) setStatus(data.message);
-          if (data.progress) setProgress(data.progress);
+          if (data.notes) setNotes((data.notes as string[]).map((n: string, i: number) => ({ iteration: i, content: n })));
+          if (data.queries) setQueries(data.queries as string[]);
+          if (data.research_topic) setResearchTopic(data.research_topic as string);
+          if (data.message) setStatus(data.message as string);
+          if (data.progress) setProgress(data.progress as number);
           return;
         }
 
         if (eventType === 'status') {
-          if (data.message) setStatus(data.message);
+          if (data.message) setStatus(data.message as string);
           if (data.iteration !== undefined) {
-            setCurrentIteration(data.iteration + 1);
-            setProgress(((data.iteration + 1) / maxIterations));
+            setCurrentIteration((data.iteration as number) + 1);
+            setProgress(((data.iteration as number) + 1) / maxIterations);
           }
         } else if (eventType === 'done') {
-          if (data.report) setFinalReport(data.report);
-          if (data.report_id) setCurrentReportId(data.report_id);
+          if (data.report) setFinalReport(data.report as string);
+          if (data.report_id) setCurrentReportId(data.report_id as number);
           setStatus('完成');
           setProgress(1);
           setIsRunning(false);
-          es.close();
+          es.cancel();
           setEventSource(null);
           window.dispatchEvent(new Event('refresh-history'));
         } else if (eventType === 'error') {
-          setError(data.message || '研究过程中发生错误');
+          setError((data.message as string) || '研究过程中发生错误');
           setStatus('错误');
           setIsRunning(false);
-          es.close();
+          es.cancel();
           setEventSource(null);
         }
-      } catch (e) {
-        console.warn('Failed to parse SSE event:', e);
-      }
-    };
-
-    es.onerror = () => {
-      setError('SSE 连接错误');
-      setIsRunning(false);
-      es.close();
-      setEventSource(null);
-    };
+      },
+      onDone: () => {
+        setIsRunning(false);
+        setEventSource(null);
+      },
+      onError: () => {
+        setError('SSE 连接错误');
+        setIsRunning(false);
+        es.cancel();
+        setEventSource(null);
+      },
+    });
+    setEventSource(es);
   };
 
   const handleDelete = async () => {
@@ -356,41 +344,23 @@ export default function ResearchArea() {
       const taskData = await res.json();
       const taskId = taskData.task_id || '';
 
-      const streamUrl = `${apiUrl}/research/${taskId}/stream`;
-      const es = new EventSource(streamUrl, { withCredentials: true });
-      setEventSource(es);
-
-      es.onmessage = (event) => {
-        if (event.data === '[DONE]') {
-          es.close();
-          setEventSource(null);
-          setIsRunning(false);
-          return;
-        }
-
-        try {
-          let raw = event.data;
-          if (raw.startsWith('"') && raw.endsWith('"')) {
-            raw = JSON.parse(raw);
-          }
-          const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
-          const eventData = data;
-
-          const eventType = eventData.type || eventData.event || '';
+      const streamUrl = `/research/${taskId}/stream`;
+      const es = streamSSE(streamUrl, {
+        onMessage: (data) => {
+          const raw = data.raw as string || '';
+          const eventType = (data.type || data.event || '') as string;
+          const eventData = data as Record<string, unknown>;
 
           switch (eventType) {
             case 'clarify':
-              setClarifyQuestion(eventData.question || '需要澄清您的问题');
+              setClarifyQuestion((eventData.question as string) || '需要澄清您的问题');
               setStatus('clarifying');
               setIsRunning(false);
-              es.close();
+              es.cancel();
               setEventSource(null);
               break;
 
             case 'status':
-              if (eventData.message) {
-                setStatus(eventData.message);
-              }
               if (eventData.event === 'planning') {
                 setStatus('规划搜索查询...');
               } else if (eventData.event === 'planning_done') {
@@ -399,21 +369,20 @@ export default function ResearchArea() {
                   setQueries(eventData.queries as string[]);
                 }
               } else if (eventData.event === 'searching') {
-                setStatus(`搜索中 (迭代 ${(eventData.iteration ?? 0) + 1}/${maxIterations})`);
-                setCurrentIteration((eventData.iteration ?? 0) + 1);
-                setProgress(((eventData.iteration ?? 0) + 1) / maxIterations);
+                setStatus(`搜索中 (迭代 ${((eventData.iteration as number) ?? 0) + 1}/${maxIterations})`);
+                setCurrentIteration(((eventData.iteration as number) ?? 0) + 1);
+                setProgress((((eventData.iteration as number) ?? 0) + 1) / maxIterations);
               } else if (eventData.event === 'search_done') {
-                setStatus(`搜索完成 (迭代 ${(eventData.iteration ?? 0) + 1})`);
+                setStatus(`搜索完成 (迭代 ${(eventData.iteration as number) ?? 0})`);
               } else if (eventData.event === 'synthesizing') {
-                setStatus(`综合分析中 (迭代 ${(eventData.iteration ?? 0) + 1}/${maxIterations})`);
+                setStatus(`综合分析中 (迭代 ${((eventData.iteration as number) ?? 0) + 1}/${maxIterations})`);
               } else if (eventData.event === 'reporting') {
                 setStatus('生成最终报告...');
               } else if (eventData.event === 'verified') {
                 setStatus('已确认，开始研究');
+              } else if (eventData.message) {
+                setStatus(eventData.message as string);
               }
-              break;
-
-            case 'search_progress':
               break;
 
             case 'note':
@@ -421,8 +390,8 @@ export default function ResearchArea() {
                 setNotes(prev => [
                   ...prev,
                   {
-                    iteration: eventData.iteration ?? prev.length,
-                    content: eventData.content,
+                    iteration: (eventData.iteration as number) ?? prev.length,
+                    content: eventData.content as string,
                   },
                 ]);
               }
@@ -430,44 +399,40 @@ export default function ResearchArea() {
 
             case 'done':
               if (eventData.report) {
-                setFinalReport(eventData.report);
+                setFinalReport(eventData.report as string);
               }
               if (eventData.report_id) {
-                setCurrentReportId(eventData.report_id);
+                setCurrentReportId(eventData.report_id as number);
               }
               setStatus('完成');
               setProgress(1);
               setIsRunning(false);
-              es.close();
+              es.cancel();
               setEventSource(null);
-              // Refresh history to show new saved report
               window.dispatchEvent(new Event('refresh-history'));
               break;
 
             case 'error':
-              setError(eventData.message || '研究过程中发生错误');
+              setError((eventData.message as string) || '研究过程中发生错误');
               setStatus('错误');
               setIsRunning(false);
-              es.close();
+              es.cancel();
               setEventSource(null);
               break;
-
-            default:
-              if (eventData.message && !eventType) {
-                setStatus(eventData.message);
-              }
           }
-        } catch (e) {
-          console.warn('Failed to parse SSE event:', e);
-        }
-      };
-
-      es.onerror = () => {
-        setError('SSE 连接错误');
-        setIsRunning(false);
-        es.close();
-        setEventSource(null);
-      };
+        },
+        onDone: () => {
+          setIsRunning(false);
+          setEventSource(null);
+        },
+        onError: () => {
+          setError('SSE 连接错误');
+          setIsRunning(false);
+          es.cancel();
+          setEventSource(null);
+        },
+      });
+      setEventSource(es);
 
     } catch (e) {
       console.error('Failed to start research:', e);
@@ -485,67 +450,58 @@ export default function ResearchArea() {
 
   // Deep Research confirmation loop: connect to SSE stream
   const connectDeepResearchSSE = (threadId: string) => {
-    const apiUrl = getApiUrl();
-    const streamUrl = `${apiUrl}/research/stream/${threadId}`;
-    const es = new EventSource(streamUrl, { withCredentials: true });
-
-    es.onmessage = (event) => {
-      try {
-        let raw = event.data;
-        if (raw.startsWith('"') && raw.endsWith('"')) raw = JSON.parse(raw);
-        const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
-        const eventType = data.type || data.event || '';
-        const eventData = data.data || data;
+    const streamUrl = `/research/stream/${threadId}`;
+    const es = streamSSE(streamUrl, {
+      onMessage: (data) => {
+        const eventType = (data.type || data.event || '') as string;
+        const eventData = (data.data || data) as Record<string, unknown>;
 
         switch (eventType) {
           case 'research_update':
             if (eventData.content) {
-              setResearchHistory(prev => [...prev, eventData.content]);
+              setResearchHistory(prev => [...prev, eventData.content as string]);
             }
             break;
 
           case 'interrupt':
             setCurrentInterrupt({
-              question: eventData.question || 'What would you like to explore further?',
-              options: eventData.options || ['', '', ''],
-              allow_manual_input: eventData.allow_manual_input ?? true,
-              allow_skip: eventData.allow_skip ?? true,
-              allow_confirm_done: eventData.allow_confirm_done ?? true,
+              question: (eventData.question as string) || 'What would you like to explore further?',
+              options: (eventData.options as [string, string, string]) || ['', '', ''],
+              allow_manual_input: eventData.allow_manual_input as boolean ?? true,
+              allow_skip: eventData.allow_skip as boolean ?? true,
+              allow_confirm_done: eventData.allow_confirm_done as boolean ?? true,
             });
             setDeepResearchStatus('waiting_input');
-            es.close();
+            es.cancel();
             break;
 
           case 'complete':
             if (eventData.final_report) {
-              setResearchHistory(prev => [...prev, '\n---\n# Final Report\n\n' + eventData.final_report]);
+              setResearchHistory(prev => [...prev, '\n---\n# Final Report\n\n' + (eventData.final_report as string)]);
             }
             setDeepResearchStatus('complete');
-            es.close();
+            es.cancel();
             window.dispatchEvent(new Event('refresh-history'));
             break;
 
           case 'error':
-            setDeepResearchError(eventData.message || 'Research error occurred');
+            setDeepResearchError((eventData.message as string) || 'Research error occurred');
             setDeepResearchStatus('error');
-            es.close();
+            es.cancel();
             break;
 
           default:
             if (eventData.content) {
-              setResearchHistory(prev => [...prev, eventData.content]);
+              setResearchHistory(prev => [...prev, eventData.content as string]);
             }
         }
-      } catch (e) {
-        console.warn('Failed to parse SSE event:', e);
-      }
-    };
-
-    es.onerror = () => {
-      setDeepResearchError('SSE connection error');
-      setDeepResearchStatus('error');
-      es.close();
-    };
+      },
+      onError: () => {
+        setDeepResearchError('SSE connection error');
+        setDeepResearchStatus('error');
+        es.cancel();
+      },
+    });
 
     return es;
   };

@@ -3,6 +3,7 @@ SQLAlchemy models for the memory system.
 """
 
 from datetime import datetime
+import uuid
 from uuid import UUID
 from typing import Optional
 
@@ -34,7 +35,7 @@ class MemoryBank(Base):
     """
     __tablename__ = "memory_banks"
 
-    id = Column(PGUUID(as_uuid=True), primary_key=True)
+    id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     workspace_id = Column(Integer, nullable=False, unique=True)
     name = Column(Text, nullable=False)
     config = Column(JSONB, default={})
@@ -66,7 +67,7 @@ class MemoryUnit(Base):
     """
     __tablename__ = "memory_units"
 
-    id = Column(PGUUID(as_uuid=True), primary_key=True)
+    id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     bank_id = Column(PGUUID(as_uuid=True), ForeignKey("memory_banks.id", ondelete="CASCADE"), nullable=False)
     content = Column(Text, nullable=False)
     embedding = Column(ARRAY(Float), nullable=True)  # standard SQLAlchemy array
@@ -109,7 +110,7 @@ class Entity(Base):
     """
     __tablename__ = "entities"
 
-    id = Column(PGUUID(as_uuid=True), primary_key=True)
+    id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     bank_id = Column(PGUUID(as_uuid=True), ForeignKey("memory_banks.id", ondelete="CASCADE"), nullable=False)
     name = Column(Text, nullable=False)
     entity_type = Column(String(50))  # person, topic, preference, conclusion

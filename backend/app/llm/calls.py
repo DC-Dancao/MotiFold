@@ -253,6 +253,11 @@ def llm_structured_invoke(
         strict=strict,
     )
 
+    # Attach callback handler to the structured output chain
+    callbacks = kwargs.pop("callbacks", [])
+    callbacks.append(CentralLLMLoggerCallbackHandler())
+    model_with_structure.callbacks = callbacks
+
     if messages is not None:
         return model_with_structure.invoke(messages)
 
@@ -297,6 +302,11 @@ async def llm_structured_invoke_async(
         method=method,
         strict=strict,
     )
+
+    # Attach callback handler to the structured output chain
+    callbacks = kwargs.pop("callbacks", [])
+    callbacks.append(CentralLLMLoggerCallbackHandler())
+    model_with_structure.callbacks = callbacks
 
     if messages is not None:
         return await model_with_structure.ainvoke(messages)
@@ -346,6 +356,11 @@ def llm_structured_stream(
         method=method,
         strict=strict,
     )
+
+    # Attach callback handler to the structured output chain
+    callbacks = kwargs.pop("callbacks", [])
+    callbacks.append(CentralLLMLoggerCallbackHandler())
+    model_with_structure.callbacks = callbacks
 
     if messages is not None:
         full_messages = messages
@@ -423,6 +438,11 @@ def llm_tool_call(
     # Bind tools to model
     bound = model.bind_tools(tools, tool_choice=tool_choice, parallel_tool_calls=parallel_tool_calls)
 
+    # Attach callback handler to the bound chain
+    callbacks = kwargs.pop("callbacks", [])
+    callbacks.append(CentralLLMLoggerCallbackHandler())
+    bound.callbacks = callbacks
+
     if messages is not None:
         return bound.invoke(messages)
 
@@ -462,6 +482,11 @@ async def llm_tool_call_async(
     """
     model = get_llm(model_name=model_name, streaming=False, **kwargs)
     bound = model.bind_tools(tools, tool_choice=tool_choice, parallel_tool_calls=parallel_tool_calls)
+
+    # Attach callback handler to the bound chain
+    callbacks = kwargs.pop("callbacks", [])
+    callbacks.append(CentralLLMLoggerCallbackHandler())
+    bound.callbacks = callbacks
 
     if messages is not None:
         return await bound.ainvoke(messages)
@@ -515,6 +540,11 @@ def llm_tool_stream(
     model = get_llm(model_name=model_name, streaming=True, **kwargs)
     bound = model.bind_tools(tools, tool_choice=tool_choice, parallel_tool_calls=parallel_tool_calls)
 
+    # Attach callback handler to the bound chain
+    callbacks = kwargs.pop("callbacks", [])
+    callbacks.append(CentralLLMLoggerCallbackHandler())
+    bound.callbacks = callbacks
+
     if messages is not None:
         full_messages = messages
     else:
@@ -555,6 +585,11 @@ async def llm_tool_stream_async(
     """
     model = get_llm(model_name=model_name, streaming=True, **kwargs)
     bound = model.bind_tools(tools, tool_choice=tool_choice, parallel_tool_calls=parallel_tool_calls)
+
+    # Attach callback handler to the bound chain
+    callbacks = kwargs.pop("callbacks", [])
+    callbacks.append(CentralLLMLoggerCallbackHandler())
+    bound.callbacks = callbacks
 
     if messages is not None:
         full_messages = messages
@@ -612,6 +647,11 @@ def llm_structured_dict_invoke(
     model = get_llm(model_name=model_name, streaming=False, **kwargs)
 
     model_with_structure = model.with_structured_output(output_schema, method=method)
+
+    # Attach callback handler to the structured output chain
+    callbacks = kwargs.pop("callbacks", [])
+    callbacks.append(CentralLLMLoggerCallbackHandler())
+    model_with_structure.callbacks = callbacks
 
     if messages is not None:
         full_messages = messages

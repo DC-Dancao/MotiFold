@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 
 import { resolveBrowserApiUrl, resolveServerApiUrl } from './api-base';
 
-test('browser resolver falls back to the exposed host API port', () => {
-  assert.equal(resolveBrowserApiUrl({} as NodeJS.ProcessEnv), 'http://localhost:18000');
+test('browser resolver uses same-origin proxy paths', () => {
+  assert.equal(resolveBrowserApiUrl({} as NodeJS.ProcessEnv), '');
 });
 
 test('server resolver falls back to the Docker service URL', () => {

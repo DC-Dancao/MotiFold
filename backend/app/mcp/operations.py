@@ -107,6 +107,7 @@ async def get_operation_status(
                 created_at=report.created_at.isoformat() if report.created_at else "",
             )
 
+        # Try parsing as integer ID for blackboard/matrix
         try:
             record_id = int(task_id)
         except ValueError:

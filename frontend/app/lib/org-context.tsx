@@ -21,6 +21,19 @@ interface OrgContextType {
 
 const OrgContext = createContext<OrgContextType | null>(null);
 
+function syncOrgCookie(orgSlug: string | null) {
+  if (typeof document === 'undefined') {
+    return;
+  }
+
+  if (orgSlug) {
+    document.cookie = `motifold_current_org_id=${encodeURIComponent(orgSlug)}; path=/; samesite=lax`;
+    return;
+  }
+
+  document.cookie = 'motifold_current_org_id=; path=/; max-age=0; samesite=lax';
+}
+
 export function OrgProvider({ children }: { children: React.ReactNode }) {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [currentOrg, setCurrentOrgState] = useState<Organization | null>(null);
@@ -43,9 +56,13 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
         const validOrg = orgs.find(o => o.slug === storedOrgSlug);
         if (validOrg) {
           setCurrentOrgState(validOrg);
+          syncOrgCookie(validOrg.slug);
         } else if (orgs.length > 0) {
           setCurrentOrgState(orgs[0]);
           localStorage.setItem('motifold_current_org_id', orgs[0].slug);
+          syncOrgCookie(orgs[0].slug);
+        } else {
+          syncOrgCookie(null);
         }
       }
     } catch (error) {
@@ -59,8 +76,10 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
     setCurrentOrgState(org);
     if (org) {
       localStorage.setItem('motifold_current_org_id', org.slug);
+      syncOrgCookie(org.slug);
     } else {
       localStorage.removeItem('motifold_current_org_id');
+      syncOrgCookie(null);
     }
   }, []);
 

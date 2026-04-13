@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
+from app.core.database import get_db_with_schema
 from app.auth.models import User
 from app.core.security import get_current_user
 from app.memory.service import MemoryService, MemoryLimitExceededError
@@ -47,7 +47,7 @@ async def _verify_workspace_access(
 async def retain_memory(
     workspace_id: int,
     memory: MemoryCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_with_schema),
     current_user: User = Depends(get_current_user),
 ):
     await _verify_workspace_access(workspace_id, db, current_user)
@@ -82,7 +82,7 @@ async def recall_memories(
     limit: int = Query(5, ge=1, le=20, description="Max results"),
     max_tokens: int = Query(4000, ge=100, le=10000, description="Max token budget"),
     use_multi_strategy: bool = Query(False, description="Use multi-strategy retrieval (semantic + keyword)"),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_with_schema),
     current_user: User = Depends(get_current_user),
 ):
     await _verify_workspace_access(workspace_id, db, current_user)
@@ -123,7 +123,7 @@ async def get_entity_memories(
     workspace_id: int,
     entity_name: str,
     limit: int = Query(10, ge=1, le=50),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_with_schema),
     current_user: User = Depends(get_current_user),
 ):
     await _verify_workspace_access(workspace_id, db, current_user)
@@ -150,7 +150,7 @@ async def get_entity_memories(
 @router.get("/{workspace_id}/stats")
 async def get_memory_stats(
     workspace_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_with_schema),
     current_user: User = Depends(get_current_user),
 ):
     await _verify_workspace_access(workspace_id, db, current_user)
@@ -173,7 +173,7 @@ async def update_preference(
     workspace_id: int,
     preference_key: str = Query(..., description="Preference name"),
     preference_value: str = Query(..., description="Preference value"),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_with_schema),
     current_user: User = Depends(get_current_user),
 ):
     await _verify_workspace_access(workspace_id, db, current_user)
@@ -204,7 +204,7 @@ async def update_preference(
 async def get_recent_memories(
     workspace_id: int,
     limit: int = Query(20, ge=1, le=100, description="Max results"),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_with_schema),
     current_user: User = Depends(get_current_user),
 ):
     await _verify_workspace_access(workspace_id, db, current_user)
@@ -226,7 +226,7 @@ async def get_recent_memories(
 @router.get("/{workspace_id}/hit-rate")
 async def get_memory_hit_rate(
     workspace_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_with_schema),
     current_user: User = Depends(get_current_user),
 ):
     await _verify_workspace_access(workspace_id, db, current_user)

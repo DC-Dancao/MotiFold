@@ -24,7 +24,6 @@ from app.blackboard.router import router as blackboard_router
 from app.research.router import router as research_router
 from app.tenant.middleware import TenantMiddleware
 from app.org.router import router as org_router
-from app.mcp.server import MCPMiddleware
 from app.memory.router import router as memory_router
 
 # Import all models so Alembic/SQLAlchemy can find them via Base.metadata
@@ -38,6 +37,11 @@ from app.org.models import Organization, OrganizationMember  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
+# Create MCP server and HTTP app once at module level so lifespan is shared with FastAPI
+from app.mcp.server import create_mcp_server, MCPMiddleware
+_mcp_server = create_mcp_server()
+_mcp_http_app = _mcp_server.http_app(transport="streamable-http")
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -48,13 +52,22 @@ async def lifespan(_: FastAPI):
     await close_redis_clients()
 
 
-app = FastAPI(title="Motifold Chat MVP", lifespan=lifespan)
+@asynccontextmanager
+async def combined_lifespan(app: FastAPI):
+    # Enter both the MCP lifespan (FastMCP session manager) and FastAPI's own lifespan
+    # The MCP lifespan needs the FastAPI app instance
+    async with _mcp_http_app.lifespan(app):
+        async with lifespan(app):
+            yield
+
+
+app = FastAPI(title="Motifold Chat MVP", lifespan=combined_lifespan)
 
 # Add Tenant Middleware (must be first)
 app.add_middleware(TenantMiddleware)
 
-# Add MCP Middleware (it intercepts /mcp)
-app.add_middleware(MCPMiddleware, prefix="/mcp")
+# Add MCP Middleware (it intercepts /mcp), passing the pre-created HTTP app
+app.add_middleware(MCPMiddleware, prefix="/mcp", mcp_app=_mcp_http_app)
 
 app.add_middleware(
     CORSMiddleware,

@@ -3,20 +3,101 @@ import { getApiUrl } from './api-base';
 
 let refreshPromise: Promise<boolean> | null = null;
 
+export type SSECallback = (data: Record<string, unknown>, raw: string) => void;
+export type SSEErrorCallback = (error: Error) => void;
+
+export interface SSECancelFn {
+  cancel: () => void;
+  onerror?: SSEErrorCallback;
+}
+
+export function streamSSE(
+  url: string,
+  callbacks: {
+    onMessage: SSECallback;
+    onDone?: () => void;
+    onError?: SSEErrorCallback;
+  }
+): SSECancelFn {
+  let cancelled = false;
+  const controller = new AbortController();
+
+  (async () => {
+    try {
+      const response = await fetch(url, {
+        credentials: 'include',
+        signal: controller.signal,
+      });
+
+      if (!response.ok || !response.body) {
+        callbacks.onError?.(new Error(`SSE connection failed: ${response.status}`));
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (!cancelled) {
+        const { done, value } = await reader.read();
+        if (done) {
+          callbacks.onDone?.();
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split('\n\n');
+        buffer = events.pop() || '';
+
+        for (const event of events) {
+          const dataLine = event
+            .split('\n')
+            .find(line => line.startsWith('data:'));
+
+          if (!dataLine) continue;
+
+          try {
+            const raw = dataLine.slice(5).trim();
+            const parsed = JSON.parse(raw);
+            callbacks.onMessage(parsed, raw);
+          } catch {
+            callbacks.onMessage({ raw: dataLine.slice(5).trim() }, dataLine.slice(5).trim());
+          }
+        }
+      }
+    } catch (err) {
+      if (!cancelled) {
+        callbacks.onError?.(err instanceof Error ? err : new Error(String(err)));
+      }
+    }
+  })();
+
+  return {
+    cancel: () => {
+      cancelled = true;
+      controller.abort();
+    },
+    onerror: callbacks.onError,
+  };
+}
+
 const redirectToLogin = () => {
-  if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
-    window.location.href = '/login';
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('motifold_access_token');
+    if (window.location.pathname !== '/login') {
+      window.location.href = '/login';
+    }
   }
 };
 
-const refreshAuth = async () => {
+const refreshAuth = async (): Promise<boolean> => {
   if (!refreshPromise) {
     const apiUrl = getApiUrl();
     refreshPromise = fetch(`${apiUrl}/auth/refresh`, {
       method: 'POST',
       credentials: 'include'
     })
-      .then(async (res) => {
+      .then((res) => {
         if (!res.ok) {
           console.warn('Refresh auth failed with status:', res.status);
           return false;
@@ -36,26 +117,27 @@ const refreshAuth = async () => {
 };
 
 const isRefreshRequest = (url: string) => {
+  if (url.includes('/auth/refresh')) {
+    return true;
+  }
+
   try {
-    return new URL(url, getApiUrl()).pathname === '/auth/refresh';
+    const base = typeof window !== 'undefined' ? window.location.origin : getApiUrl();
+    return new URL(url, base).pathname === '/auth/refresh';
   } catch {
-    return url.includes('/auth/refresh');
+    return false;
   }
 };
 
 export const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
-  // Get current org from localStorage
   const currentOrgId = typeof window !== 'undefined'
     ? localStorage.getItem('motifold_current_org_id')
     : null;
 
-  const headers: HeadersInit = {
-    ...options.headers,
-  };
+  const headers = new Headers(options.headers);
 
-  // Add X-Org-ID header if set and not an auth request
   if (currentOrgId && !url.includes('/auth/')) {
-    headers['X-Org-ID'] = currentOrgId;
+    headers.set('X-Org-ID', currentOrgId);
   }
 
   const finalOptions: RequestInit = {

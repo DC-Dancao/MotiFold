@@ -22,7 +22,7 @@ RUN useradd -m appuser
 # ================= PROD STAGE =================
 FROM base AS prod
 
-# Install dependencies into the system environment
+# Install all dependencies (including ML)
 RUN uv pip install --system -r pyproject.toml
 
 # Copy the rest of the application
@@ -47,3 +47,14 @@ USER appuser
 # Default command for dev mode
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 
+# ================= MIGRATION STAGE =================
+# Minimal stage for running migrations — no ML dependencies
+FROM base AS migration
+
+RUN uv pip install --system -r pyproject.toml
+
+COPY --chown=appuser:appuser . .
+
+USER appuser
+
+CMD ["alembic", "upgrade", "head"]
