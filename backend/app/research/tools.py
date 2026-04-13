@@ -1,7 +1,7 @@
 """
 Web search and scraping tools for the Deep Research agent.
 
-Uses ddgs (DuckDuckGo async search), aiohttp for async fetching,
+Uses googlesearch for web search, aiohttp for async fetching,
 and BeautifulSoup for parsing. All LLM calls use the centralized get_llm() factory.
 """
 
@@ -12,7 +12,7 @@ from typing import Annotated, List
 
 import aiohttp
 import bs4
-from ddgs import DDGS
+from googlesearch import search
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
@@ -83,16 +83,14 @@ async def web_search(
 
         for query in queries:
             try:
-                def sync_search():
-                    with DDGS() as ddgs:
-                        return list(ddgs.text(query, max_results=max_results))
-
-                results = await asyncio.to_thread(sync_search)
-                query_results[query] = results
-                for result in results:
+                results = await asyncio.to_thread(
+                    search, query, num_results=max_results, advanced=True
+                )
+                query_results[query] = list(results)
+                for result in query_results[query]:
                     search_tasks.append(get_readable_text(result.url, session))
             except Exception as e:
-                logger.error(f"DuckDuckGo search failed for query '{query}': {e}")
+                logger.error(f"Google search failed for query '{query}': {e}")
                 query_results[query] = []
 
         web_texts = await asyncio.gather(*search_tasks)
@@ -201,14 +199,12 @@ async def search_and_summarize(
 
         for query in queries:
             try:
-                def sync_search():
-                    with DDGS() as ddgs:
-                        return list(ddgs.text(query, max_results=max_results))
-
-                results = await asyncio.to_thread(sync_search)
-                query_results[query] = results
+                results = await asyncio.to_thread(
+                    search, query, num_results=max_results, advanced=True
+                )
+                query_results[query] = list(results)
             except Exception as e:
-                logger.error(f"DuckDuckGo search failed for '{query}': {e}")
+                logger.error(f"Google search failed for '{query}': {e}")
                 query_results[query] = []
 
         fetch_tasks = []
