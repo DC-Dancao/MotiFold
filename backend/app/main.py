@@ -26,6 +26,7 @@ from app.tenant.middleware import TenantMiddleware
 from app.org.router import router as org_router
 from app.memory.router import router as memory_router
 from app.stats.router import router as stats_router
+from app.text_memory.router import router as text_memory_router
 
 # Import all models so Alembic/SQLAlchemy can find them via Base.metadata
 from app.auth.models import User  # noqa: F401
@@ -34,6 +35,7 @@ from app.chat.models import Chat, Message  # noqa: F401
 from app.matrix.models import Keyword, MorphologicalAnalysis  # noqa: F401
 from app.blackboard.models import BlackboardData  # noqa: F401
 from app.memory.models import MemoryBank, MemoryUnit, Entity  # noqa: F401
+from app.text_memory.models import TextMemory  # noqa: F401
 from app.org.models import Organization, OrganizationMember  # noqa: F401
 
 logger = logging.getLogger(__name__)
@@ -88,6 +90,7 @@ app.include_router(blackboard_router, tags=["blackboard"])
 app.include_router(research_router, tags=["research"])
 app.include_router(memory_router, tags=["memory"])
 app.include_router(stats_router, tags=["stats"])
+app.include_router(text_memory_router, tags=["text-memory"])
 
 @app.get("/")
 def read_root():
