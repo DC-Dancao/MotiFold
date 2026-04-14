@@ -8,7 +8,7 @@ import json
 import logging
 from typing import Literal
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, get_buffer_string
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command
@@ -87,7 +87,7 @@ async def clarify_topic(
             "pro",
             NeedsClarification,
             CLARIFY_PROMPT.format(date=date),
-            get_buffer_string(messages),
+            messages[-1].content,
         )
 
         if result.need_clarification:
@@ -113,12 +113,12 @@ async def clarify_topic(
             "pro",
             ResearchTopic,
             RESEARCH_TOPIC_PROMPT.format(),
-            get_buffer_string(messages),
+            messages[-1].content,
         )
         updates["research_topic"] = topic_result.topic
     except Exception as e:
         logger.error(f"Failed to derive research topic: {e}")
-        updates["research_topic"] = get_buffer_string(messages)
+        updates["research_topic"] = messages[-1].content
 
     return Command(goto="plan_search", update=updates)
 
