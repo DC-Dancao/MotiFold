@@ -178,13 +178,17 @@ async def save_morphological_analysis(
             stmt = select(MorphologicalAnalysis).where(MorphologicalAnalysis.id == req.id, MorphologicalAnalysis.user_id == current_user.id)
             result = await db.execute(stmt)
             analysis = result.scalars().first()
-            
+
             if not analysis:
                 raise HTTPException(status_code=404, detail="Analysis not found")
-                
+
             analysis.focus_question = req.focus_question
             analysis.parameters_json = parameters_json
             analysis.matrix_json = matrix_json
+            await db.flush()
+            # Use values from flush - server defaults populated within transaction
+            created_at = analysis.created_at
+            updated_at = analysis.updated_at
         else:
             analysis = MorphologicalAnalysis(
                 user_id=current_user.id,
@@ -193,9 +197,14 @@ async def save_morphological_analysis(
                 matrix_json=matrix_json
             )
             db.add(analysis)
-            
+            await db.flush()
+            # Use values from flush - server defaults (id, created_at) populated within transaction
+            created_at = analysis.created_at
+            updated_at = analysis.updated_at
+
         await db.commit()
-        await db.refresh(analysis)
+        # Don't refresh after commit - SET LOCAL search_path is transaction-scoped and resets after commit,
+        # causing refresh to query wrong schema. Use flushed values instead.
 
         return MorphologicalAnalysisSchema(
             id=analysis.id,
@@ -203,8 +212,8 @@ async def save_morphological_analysis(
             parameters=json.loads(analysis.parameters_json),
             matrix=json.loads(analysis.matrix_json),
             status=analysis.status,
-            created_at=analysis.created_at.isoformat() if analysis.created_at else "",
-            updated_at=analysis.updated_at.isoformat() if analysis.updated_at else ""
+            created_at=created_at.isoformat() if created_at else "",
+            updated_at=updated_at.isoformat() if updated_at else ""
         )
     except Exception as e:
         print(f"Error saving morphological analysis: {e}")
