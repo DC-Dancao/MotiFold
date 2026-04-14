@@ -4,11 +4,6 @@ System prompts for the Deep Research agent.
 
 CLARIFY_PROMPT = """Today's date is {date}.
 
-These are the messages exchanged so far:
-<Messages>
-{messages}
-</Messages>
-
 Assess whether you need to ask a clarifying question, or if you have enough information to begin research.
 
 Guidelines:
@@ -26,9 +21,6 @@ If not needed: need_clarification=false, question="", verification="<brief ackno
 
 RESEARCH_TOPIC_PROMPT = """Given the user's research request, produce a refined, detailed research question that will guide the research.
 
-User request: {message}
-Today's date: {date}
-
 Guidelines:
 1. Be highly specific — include all known constraints, preferences, and dimensions
 2. Fill in unstated but necessary dimensions as open-ended (e.g., "any region", "any time period")
@@ -42,9 +34,6 @@ Return JSON with key: topic (str)
 
 SEARCH_PLAN_PROMPT = """Given a research topic, generate a list of focused search queries that together would provide comprehensive coverage.
 
-Research topic: {topic}
-Date: {date}
-
 Generate 3-8 search queries that:
 1. Each query is self-contained and focused on one aspect
 2. Together they cover different angles (background, specifics, recent developments, conflicting views)
@@ -54,12 +43,6 @@ Return JSON with key: queries (list of strings)
 """
 
 SYNTHESIZE_PROMPT = """You are a research synthesizer. Given a list of search results with summaries, produce a concise synthesized note.
-
-Research topic: {topic}
-Date: {date}
-
-Search results:
-{results}
 
 Produce a synthesized note that:
 1. Integrates information across multiple sources
@@ -71,12 +54,6 @@ Return JSON with keys: summary (str), key_excerpts (str)
 """
 
 REPORT_PROMPT = """You are a research report writer. Given synthesized research notes, produce a comprehensive markdown report.
-
-Research topic: {topic}
-Date: {date}
-
-Synthesized notes from {num_notes} research iterations:
-{notes}
 
 Write a well-structured markdown report that:
 1. Starts with a clear introduction to the topic

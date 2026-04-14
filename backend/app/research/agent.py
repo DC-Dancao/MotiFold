@@ -49,10 +49,10 @@ def get_today_str() -> str:
 async def _llm_structured(model_name: str, schema, system: str, user: str):
     llm = get_llm(model_name=model_name, temperature=0)
     model = llm.with_structured_output(schema).with_retry(stop_after_attempt=3)
-    messages = [SystemMessage(content=system)]
-    if user:
-        messages.append(HumanMessage(content=user))
-    return await model.ainvoke(messages)
+    return await model.ainvoke([
+        SystemMessage(content=system),
+        HumanMessage(content=user),
+    ])
 
 
 async def _emit(task_id: str, event: dict):
@@ -86,8 +86,8 @@ async def clarify_topic(
         result = await _llm_structured(
             "pro",
             NeedsClarification,
-            CLARIFY_PROMPT.format(messages=get_buffer_string(messages), date=date),
-            "",
+            CLARIFY_PROMPT.format(date=date),
+            get_buffer_string(messages),
         )
 
         if result.need_clarification:
@@ -112,11 +112,8 @@ async def clarify_topic(
         topic_result = await _llm_structured(
             "pro",
             ResearchTopic,
-            RESEARCH_TOPIC_PROMPT.format(
-                message=get_buffer_string(messages),
-                date=date,
-            ),
-            "",
+            RESEARCH_TOPIC_PROMPT.format(),
+            get_buffer_string(messages),
         )
         updates["research_topic"] = topic_result.topic
     except Exception as e:
@@ -148,8 +145,8 @@ async def plan_search(
         result = await _llm_structured(
             "pro",
             SearchPlan,
-            SEARCH_PLAN_PROMPT.format(topic=topic, date=date),
-            "",
+            SEARCH_PLAN_PROMPT.format(),
+            f"Research topic: {topic}\nDate: {date}",
         )
 
         await _emit(task_id, {
@@ -257,12 +254,8 @@ async def synthesize(
         result = await _llm_structured(
             "pro",
             Summary,
-            SYNTHESIZE_PROMPT.format(
-                topic=research_topic,
-                date=date,
-                results=results_text[:6000],
-            ),
-            "",
+            SYNTHESIZE_PROMPT.format(),
+            f"Research topic: {research_topic}\nDate: {date}\n\nSearch results:\n{results_text[:6000]}",
         )
 
         note = f"[Iteration {iterations}] {result.summary}"
@@ -324,13 +317,8 @@ async def generate_report(
         result = await _llm_structured(
             "pro",
             FinalReport,
-            REPORT_PROMPT.format(
-                topic=research_topic,
-                date=date,
-                num_notes=len(notes),
-                notes=notes_text[:8000],
-            ),
-            "",
+            REPORT_PROMPT.format(),
+            f"Research topic: {research_topic}\nDate: {date}\n\nSynthesized notes from {len(notes)} research iterations:\n{notes_text[:8000]}",
         )
 
         await _emit(task_id, {
