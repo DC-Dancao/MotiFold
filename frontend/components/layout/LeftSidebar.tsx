@@ -1046,28 +1046,27 @@ export default function LeftSidebar() {
             )}
           </div>
 
-          {/* Overview */}
-          <button
-            onClick={() => router.push('/overview')}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 ${pathname === '/overview' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
-          >
-            <LayoutDashboard className={`w-4 h-4 flex-shrink-0 ${pathname === '/overview' ? 'text-indigo-600' : 'text-slate-400'}`} />
-            <span className="font-medium">总览</span>
-          </button>
-
           {/* Workspace Views Section */}
           <div className={`flex flex-col ${isChatsOpen ? 'flex-shrink-0 max-h-[40%]' : 'flex-1 min-h-0'}`}>
-            <div 
+            <div
               className="flex items-center justify-between px-2 mb-2 flex-shrink-0 cursor-pointer group"
               onClick={() => setIsViewsOpen(!isViewsOpen)}
             >
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest group-hover:text-slate-600 transition-colors">工作流视图</span>
               <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform duration-200 ${isViewsOpen ? '' : '-rotate-90'}`} />
             </div>
-            
+
             {isViewsOpen && (
               <div className="flex-1 overflow-y-auto space-y-1 mt-1 pr-1 custom-scrollbar">
-                <button 
+                <button
+                  onClick={() => router.push('/overview')}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 ${pathname === '/overview' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
+                >
+                  <LayoutDashboard className={`w-4 h-4 flex-shrink-0 ${pathname === '/overview' ? 'text-indigo-600' : 'text-slate-400'}`} />
+                  <span className="font-medium">总览</span>
+                </button>
+
+                <button
                   onClick={() => router.push('/matrix')}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 ${pathname === '/matrix' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
                 >
