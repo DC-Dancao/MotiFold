@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Sparkles, Loader2, RefreshCw, Save, Trash2, FolderOpen, Maximize2, Minimize2, Edit2, AlertTriangle } from 'lucide-react';
+import { Sparkles, Loader2, RefreshCw, Save, Trash2, FolderOpen, Maximize2, Minimize2, Edit2 } from 'lucide-react';
 import ReactECharts from 'echarts-for-react';
 import { fetchWithAuth, getApiUrl, streamSSE, SSECancelFn } from '../../app/lib/api';
 import Tab4Convergence from './Tab4Convergence';
@@ -32,14 +32,6 @@ interface SavedAnalysis {
   status: string;
   created_at: string;
   updated_at: string;
-}
-
-interface OrthogonalityWarning {
-  param1_idx: number;
-  param2_idx: number;
-  param1_name: string;
-  param2_name: string;
-  overlap_description: string;
 }
 
 interface Cluster {
@@ -89,7 +81,6 @@ export default function MorphologicalTab() {
 
   const [editingCell, setEditingCell] = useState<{pIdx: number, sIdx: number} | null>(null);
   const [editValue, setEditValue] = useState("");
-  const [orthogonalityWarnings, setOrthogonalityWarnings] = useState<OrthogonalityWarning[]>([]);
 
   const maxStatesCount = useMemo(() => {
     return Math.max(...parameters.map(p => p.states.length), 0);
@@ -501,22 +492,6 @@ export default function MorphologicalTab() {
       return () => clearTimeout(timer);
     }
   }, [matrixData, parameters, focusQuestion]);
-
-  // Orthogonality check effect
-  useEffect(() => {
-    if (parameters.length > 0 && currentAnalysisId) {
-      fetchWithAuth(`${getApiUrl()}/matrix/morphological/orthogonality-check`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ analysis_id: currentAnalysisId })
-      })
-      .then(res => res.json())
-      .then(data => {
-        if (data.warnings) setOrthogonalityWarnings(data.warnings);
-      })
-      .catch(console.error);
-    }
-  }, [parameters.length, currentAnalysisId]);
 
   // SSE connection for real-time matrix updates
   useEffect(() => {
@@ -1062,21 +1037,6 @@ export default function MorphologicalTab() {
                   ))}
                 </tbody>
               </table>
-              {orthogonalityWarnings.length > 0 && (
-                <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
-                  <div className="flex items-center gap-2 mb-2">
-                    <AlertTriangle className="w-5 h-5 text-yellow-600" />
-                    <h4 className="font-medium text-yellow-800">Parameter Overlap Detected</h4>
-                  </div>
-                  <ul className="text-sm text-yellow-700 space-y-1">
-                    {orthogonalityWarnings.map((warning, idx) => (
-                      <li key={idx}>
-                        <strong>{warning.param1_name}</strong> and <strong>{warning.param2_name}</strong>: {warning.overlap_description}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
             </div>
           )}
         </div>

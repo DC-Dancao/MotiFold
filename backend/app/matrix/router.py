@@ -23,7 +23,6 @@ from app.matrix.schemas import (
     ModifyKeywordResponse,
     KeywordSchema,
     SaveKeywordRequest,
-    MorphologicalParameter,
     ExtractQuestionRequest,
     ExtractQuestionResponse,
     GenerateMorphologicalRequest,
@@ -32,7 +31,6 @@ from app.matrix.schemas import (
     EvaluateConsistencyResponse,
     SaveMorphologicalRequest,
     MorphologicalAnalysisSchema,
-    OrthogonalityCheckResponse,
     ClusterRequest,
     ClusterResponse,
     AHPSuggestRequest,
@@ -500,35 +498,6 @@ async def delete_keyword(
     await db.delete(kw)
     await db.commit()
     return {"status": "success"}
-
-
-@router.post("/morphological/orthogonality-check")
-async def check_orthogonality(
-    request: Dict,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db_with_schema)
-):
-    """Check parameter orthogonality."""
-    from .service import check_orthogonality
-
-    # Get analysis from request or return error
-    analysis_id = request.get("analysis_id")
-    if not analysis_id:
-        raise HTTPException(status_code=400, detail="analysis_id is required")
-
-    stmt = select(MorphologicalAnalysis).where(
-        MorphologicalAnalysis.id == analysis_id,
-        MorphologicalAnalysis.user_id == current_user.id
-    )
-    result = await db.execute(stmt)
-    analysis = result.scalars().first()
-
-    if not analysis:
-        raise HTTPException(status_code=404, detail="Analysis not found")
-
-    params = json.loads(analysis.parameters_json)
-    result = await check_orthogonality(params)
-    return result
 
 
 @router.post("/cluster")

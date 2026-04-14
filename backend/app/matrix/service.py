@@ -13,7 +13,6 @@ from app.matrix.schemas import (
     BatchEvaluateConsistencyResponse,
     EvaluationResult,
     PairEvaluateConsistencyResponse,
-    OrthogonalityCheckResponse,
     ClusterResponse,
     AHPCriteriaResponse,
 )
@@ -256,37 +255,6 @@ Rows not listed are treated as "green."""
                 ))
 
     raise ValueError(f"Failed to evaluate consistency after {3} attempts. Last error: {last_error}")
-
-
-async def check_orthogonality(parameters: List[MorphologicalParameter]) -> Dict[str, Any]:
-    """Check if parameters are orthogonal (non-overlapping)."""
-    llm = get_llm(model_name=settings.OPENAI_MODEL_PRO, streaming=False)
-    structured_llm = llm.with_structured_output(OrthogonalityCheckResponse, method="function_calling")
-
-    system_prompt = """You are an expert in Morphological Analysis.
-Analyze the given parameters for orthogonality - parameters should be independent and not overlap in definition.
-Identify any pairs of parameters that have significant overlap or could be merged.
-
-Return warnings for any parameter pairs that overlap significantly."""
-
-    param_text = "\n".join(
-        f"[{i}] {p.name}: {', '.join(p.states[:3])}..."
-        for i, p in enumerate(parameters)
-    )
-
-    messages = [
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=f"Parameters:\n{param_text}")
-    ]
-
-    try:
-        response = await structured_llm.ainvoke(messages)
-        return {
-            "warnings": response.warnings if response else [],
-            "all_orthogonal": response.all_orthogonal if response else True
-        }
-    except Exception as e:
-        return {"warnings": [], "all_orthogonal": True, "error": str(e)}
 
 
 def enumerate_solutions(

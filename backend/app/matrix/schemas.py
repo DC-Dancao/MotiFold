@@ -193,17 +193,6 @@ class MatrixCellSchema(BaseModel):
 class EnhancedMatrixData(Dict[str, Dict[str, MatrixCellSchema]]):
     pass
 
-class OrthogonalityWarning(BaseModel):
-    param1_idx: int
-    param2_idx: int
-    param1_name: str
-    param2_name: str
-    overlap_description: str
-
-class OrthogonalityCheckResponse(BaseModel):
-    warnings: List[OrthogonalityWarning]
-    all_orthogonal: bool
-
 class ClusterRequest(BaseModel):
     analysis_id: int
     max_clusters: int = Field(default=5, ge=2, le=10)

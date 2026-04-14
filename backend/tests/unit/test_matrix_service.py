@@ -12,7 +12,6 @@ from app.matrix.schemas import (
     PairEvaluateConsistencyResponse,
     EvaluationResult,
     LLMGenerateMorphologicalResponse,
-    OrthogonalityCheckResponse,
     ClusterResponse,
     AHPCriteriaResponse,
 )
@@ -325,96 +324,6 @@ class TestEnumerateSolutions:
         # Just verify it doesn't hang - it will stop at 1M iterations
         solutions, iterations = matrix_service.enumerate_solutions(params, matrix)
         assert iterations > 1000000  # Should hit limit
-
-
-class TestCheckOrthogonality:
-    """Tests for check_orthogonality."""
-
-    @pytest.mark.asyncio
-    async def test_all_orthogonal(self, monkeypatch):
-        """Should return all_orthogonal when no warnings."""
-        params = [
-            MorphologicalParameter(name="Power", states=["Battery", "Solar"]),
-            MorphologicalParameter(name="Speed", states=["Fast", "Slow"])
-        ]
-
-        fake_response = OrthogonalityCheckResponse(warnings=[], all_orthogonal=True)
-
-        class FakeStructuredLLM:
-            def __init__(self):
-                self.calls = 0
-            async def ainvoke(self, messages):
-                self.calls += 1
-                return fake_response
-
-        class FakeLLM:
-            def __init__(self):
-                self.structured = FakeStructuredLLM()
-            def with_structured_output(self, schema, method=None):
-                return self.structured
-
-        fake_llm = FakeLLM()
-        monkeypatch.setattr(matrix_service, "get_llm", lambda **kwargs: fake_llm)
-
-        result = await matrix_service.check_orthogonality(params)
-
-        assert result["all_orthogonal"] is True
-        assert result["warnings"] == []
-
-    @pytest.mark.asyncio
-    async def test_with_warnings(self, monkeypatch):
-        """Should return warnings when parameters overlap."""
-        params = [
-            MorphologicalParameter(name="Power", states=["Battery", "Solar"]),
-            MorphologicalParameter(name="Energy", states=["Electric", "Gas"])
-        ]
-
-        fake_response = OrthogonalityCheckResponse(
-            warnings=[
-                {"param1_idx": 0, "param2_idx": 1, "param1_name": "Power", "param2_name": "Energy", "overlap_description": "Similar concepts"}
-            ],
-            all_orthogonal=False
-        )
-
-        class FakeStructuredLLM:
-            async def ainvoke(self, messages):
-                return fake_response
-
-        class FakeLLM:
-            def with_structured_output(self, schema, method=None):
-                return FakeStructuredLLM()
-
-        fake_llm = FakeLLM()
-        monkeypatch.setattr(matrix_service, "get_llm", lambda **kwargs: fake_llm)
-
-        result = await matrix_service.check_orthogonality(params)
-
-        assert result["all_orthogonal"] is False
-        assert len(result["warnings"]) == 1
-
-    @pytest.mark.asyncio
-    async def test_error_fallback(self, monkeypatch):
-        """Should return default values on ainvoke error."""
-        params = [
-            MorphologicalParameter(name="Power", states=["Battery", "Solar"]),
-        ]
-
-        class FakeStructuredLLM:
-            async def ainvoke(self, messages):
-                raise Exception("LLM error")
-
-        class FakeLLM:
-            def with_structured_output(self, schema, method=None):
-                return FakeStructuredLLM()
-
-        fake_llm = FakeLLM()
-        monkeypatch.setattr(matrix_service, "get_llm", lambda **kwargs: fake_llm)
-
-        result = await matrix_service.check_orthogonality(params)
-
-        assert result["all_orthogonal"] is True
-        assert result["warnings"] == []
-        assert "error" in result
 
 
 class TestClusterSolutions:
