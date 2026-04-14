@@ -55,8 +55,8 @@ services:
       - HTTPS_PROXY=${HTTPS_PROXY:-}
       - https_proxy=${https_proxy:-}
       - http_proxy=${http_proxy:-}
-      - NO_PROXY=${NO_PROXY:-}
-      - no_proxy=${no_proxy:-}
+      - NO_PROXY=${NO_PROXY:-},host.docker.internal
+      - no_proxy=${no_proxy:-},host.docker.internal
     depends_on:
       postgres:
         condition: service_healthy
@@ -78,8 +78,8 @@ services:
       - HTTPS_PROXY=${HTTPS_PROXY:-}
       - https_proxy=${https_proxy:-}
       - http_proxy=${http_proxy:-}
-      - NO_PROXY=${NO_PROXY:-}
-      - no_proxy=${no_proxy:-}
+      - NO_PROXY=${NO_PROXY:-},host.docker.internal
+      - no_proxy=${no_proxy:-},host.docker.internal
     depends_on:
       postgres:
         condition: service_healthy
