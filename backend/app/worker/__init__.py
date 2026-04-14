@@ -10,5 +10,6 @@ celery_app.conf.imports = [
     "app.worker.chat_tasks",
     "app.worker.matrix_tasks",
     "app.worker.blackboard_tasks",
+    "app.worker.tenant_migration_tasks",
     "app.research.tasks",
 ]
