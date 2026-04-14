@@ -49,6 +49,7 @@ async def create_chat(
 ):
     workspace_id = chat_data.workspace_id if chat_data else None
     model = chat_data.model if chat_data and chat_data.model else "pro"
+    solutions_mode = chat_data.solutions_mode if chat_data and chat_data.solutions_mode else None
     if workspace_id is not None:
         # Verify workspace exists in this org
         org_slug = get_current_org()
@@ -61,7 +62,13 @@ async def create_chat(
         if not result.scalars().first():
             raise HTTPException(status_code=404, detail="Workspace not found")
 
-    new_chat = Chat(user_id=current_user.id, workspace_id=workspace_id, title="New Chat", model=model)
+    new_chat = Chat(
+        user_id=current_user.id,
+        workspace_id=workspace_id,
+        title="New Chat" if not solutions_mode else "Solutions Explorer",
+        model=model,
+        solutions_mode=solutions_mode
+    )
     db.add(new_chat)
     await db.commit()
     # Return with ID populated - no refresh needed since commit auto-refreshes
@@ -154,11 +161,13 @@ async def send_message(
 
     # Use message model if provided, otherwise use chat model
     model = message.model if message.model else chat.model
+    # Use chat's solutions_mode flag
+    solutions_mode = chat.solutions_mode == "solutions"
 
     from app.worker.chat_tasks import process_message
     await redis_client.setex(f"chat_processing_{chat_id}", 300, "1")
     org_schema = getattr(request.state, 'org_schema', None)
-    process_message.delay(chat_id, message.content, org_schema, model)
+    process_message.delay(chat_id, message.content, org_schema, model, solutions_mode)
 
     return {"status": "processing", "stream_url": f"/chats/{chat_id}/stream"}
 

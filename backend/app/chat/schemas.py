@@ -3,10 +3,12 @@ from typing import Optional, Literal
 from datetime import datetime
 
 ModelLiteral = Literal["auto", "mini", "pro", "max"]
+SolutionsModeLiteral = Literal["solutions"]
 
 class ChatCreate(BaseModel):
     workspace_id: Optional[int] = None
     model: Optional[ModelLiteral] = "pro"
+    solutions_mode: Optional[SolutionsModeLiteral] = None
 
 class ChatOut(BaseModel):
     id: int
@@ -14,6 +16,7 @@ class ChatOut(BaseModel):
     workspace_id: Optional[int] = None
     title: str
     model: ModelLiteral = "pro"
+    solutions_mode: Optional[str] = None
     created_at: datetime
 
     class Config:

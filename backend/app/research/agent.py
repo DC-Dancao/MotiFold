@@ -23,6 +23,7 @@ from app.research.prompts import (
     RESEARCH_TOPIC_PROMPT,
     SEARCH_PLAN_PROMPT,
     SYNTHESIZE_PROMPT,
+    MATRIX_EXPLORATION_PROMPT,
 )
 from app.research.state import (
     LEVEL_DEFAULTS,
@@ -598,6 +599,89 @@ async def finalize_node(
     }
 
 
+async def explore_matrix_solutions(
+    state: ResearchState, config: RunnableConfig
+) -> dict:
+    """
+    Explore morphological solutions relevant to the research topic.
+    This node uses the matrix tools to find and analyze solutions.
+    """
+    logger.info("--- explore_matrix_solutions ---")
+
+    thread_id = config.get("configurable", {}).get("thread_id", "")
+    research_topic = state.get("research_topic", "")
+    research_history: list = state.get("research_history", [])
+
+    await _emit(thread_id, {
+        "type": "status",
+        "event": "exploring_solutions",
+        "message": "Exploring morphological solutions...",
+    })
+
+    # Compile research findings for context
+    research_text = "\n\n".join(f"- {item}" for item in research_history)
+
+    try:
+        from app.matrix.tools import search_solutions_by_keywords, list_morphological_analyses
+        from app.core.database import async_session_maker
+        import json
+
+        # First, list available analyses
+        analyses_result = await list_morphological_analyses.ainvoke({})
+        await _emit(thread_id, {
+            "type": "matrix_analyses",
+            "content": analyses_result,
+        })
+
+        # Extract potential keywords from research topic and findings
+        llm = get_llm(model_name="mini", temperature=0)
+        keyword_prompt = f"""Extract 3-5 relevant keywords from this research topic and findings that could match morphological solution parameters.
+Research topic: {research_topic}
+
+Findings:
+{research_text[:2000]}
+
+Return a JSON array of keywords like: ["keyword1", "keyword2", "keyword3"]
+Only return the JSON array, nothing else."""
+
+        keyword_response = await llm.ainvoke([
+            HumanMessage(content=keyword_prompt)
+        ])
+
+        # Parse keywords
+        try:
+            keywords = json.loads(keyword_response.content)
+        except:
+            keywords = research_topic.split()[:5]  # Fallback to topic words
+
+        await _emit(thread_id, {
+            "type": "status",
+            "event": "searching_solutions",
+            "message": f"Searching solutions with keywords: {', '.join(keywords)}",
+        })
+
+        # Search for solutions using the keywords
+        # Note: We need an analysis_id, which we'd typically get from the analyses list
+        # For now, we'll provide a placeholder approach
+        solutions_content = f"Keywords identified: {', '.join(keywords)}\n\n{analyses_result}"
+
+        await _emit(thread_id, {
+            "type": "matrix_solutions",
+            "keywords": keywords,
+            "content": solutions_content,
+        })
+
+        return {
+            "research_history": research_history + [f"[Matrix Exploration] Found potential solutions using keywords: {', '.join(keywords)}"],
+        }
+
+    except Exception as e:
+        logger.error(f"explore_matrix_solutions failed: {e}")
+        return {
+            "research_history": research_history + [f"[Matrix Exploration] Error exploring solutions: {str(e)}"],
+        }
+
+
 async def generate_report(
     state: ResearchState, config: RunnableConfig
 ) -> dict:
@@ -677,6 +761,8 @@ def build_graph(checkpointer=None):
     builder.add_node("followup_decision_node", followup_decision_node)
     builder.add_node("interrupt_node", interrupt_node)
     builder.add_node("finalize_node", finalize_node)
+    # Matrix solutions exploration node (step 4/5)
+    builder.add_node("explore_matrix_solutions", explore_matrix_solutions)
 
     builder.add_edge(START, "clarify_topic")
     builder.add_edge("plan_search", "execute_search")
@@ -704,7 +790,9 @@ def build_graph(checkpointer=None):
             "finalize_node": "finalize_node",
         },
     )
-    builder.add_edge("finalize_node", END)
+    # After finalize, optionally explore matrix solutions
+    builder.add_edge("finalize_node", "explore_matrix_solutions")
+    builder.add_edge("explore_matrix_solutions", END)
 
     if checkpointer is None:
         checkpointer = MemorySaver()

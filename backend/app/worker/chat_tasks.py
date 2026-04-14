@@ -165,7 +165,7 @@ def update_chat_title(chat_id: int, first_message: str, db=None, publish: bool =
             session.close()
 
 @celery_app.task(name="process_message")
-def process_message(chat_id: int, content: str, org_schema: str | None = None, model: str = "pro"):
+def process_message(chat_id: int, content: str, org_schema: str | None = None, model: str = "pro", solutions_mode: bool = False):
     db = SessionLocal()
     # Set search_path to org schema if provided
     if org_schema:
@@ -179,9 +179,9 @@ def process_message(chat_id: int, content: str, org_schema: str | None = None, m
         # Get workspace_id for memory lookup
         workspace_id = chat.workspace_id
 
-        # Enrich content with relevant memories
+        # Enrich content with relevant memories (skip for solutions mode - no memory enrichment needed)
         enriched_content = content
-        if workspace_id:
+        if workspace_id and not solutions_mode:
             enriched_content = enrich_content_with_memory(db, workspace_id, content)
 
         # Publish tokens to redis
@@ -194,14 +194,17 @@ def process_message(chat_id: int, content: str, org_schema: str | None = None, m
         try:
             # Use "auto" if model is "auto" or not set, otherwise use specific model
             model_override = None if (model == "auto" or model is None) else model
-            response = run_async_from_sync(run_agent(str(chat_id), enriched_content, token_callback, model=model_override))
+            response = run_async_from_sync(run_agent(
+                str(chat_id), enriched_content, token_callback,
+                model=model_override, solutions_mode=solutions_mode
+            ))
 
-            # Store conversation in memory after successful response
-            if workspace_id and response:
+            # Store conversation in memory after successful response (skip for solutions mode)
+            if workspace_id and response and not solutions_mode:
                 store_conversation_in_memory(db, workspace_id, content, response)
 
-            # Check if auto-title needed
-            if chat.title == "New Chat":
+            # Check if auto-title needed (skip for solutions mode)
+            if chat.title == "New Chat" and not solutions_mode:
                 generate_title.delay(chat_id, content)
 
             db.commit()

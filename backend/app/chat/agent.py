@@ -7,6 +7,7 @@ from typing import Callable, List, Literal
 from app.llm.factory import get_llm
 from app.llm.checkpointer import get_checkpointer
 from app.core.config import settings
+from app.matrix.tools import SOLUTION_TOOLS
 
 class RouterDecision(BaseModel):
     tags: List[Literal[
@@ -57,37 +58,80 @@ class DynamicModelMiddleware(AgentMiddleware):
 
 default_llm = get_llm(model_name=settings.OPENAI_MODEL_MINI, streaming=True)
 
-def get_workflow(checkpointer=None, model_override: str = None):
+def get_workflow(checkpointer=None, model_override: str = None, tools: list = None):
     """
     Create agent workflow.
 
     Args:
         checkpointer: LangGraph checkpointer for state persistence
         model_override: Specific model to use ("mini", "pro", "max") or None/"auto" for dynamic routing
+        tools: List of LangChain tools to bind to the agent
     """
+    if tools is None:
+        tools = []
+
     # If specific model requested, use it directly without middleware
     if model_override and model_override != "auto":
         llm = get_llm(model_name=model_override, streaming=True)
         return create_agent(
             model=llm,
-            tools=[],
+            tools=tools,
             checkpointer=checkpointer
         )
 
     # Otherwise use dynamic routing middleware
     return create_agent(
         model=default_llm,
-        tools=[],
+        tools=tools,
         middleware=[DynamicModelMiddleware()],
         checkpointer=checkpointer
     )
 
 workflow = get_workflow()
 
-async def run_agent(thread_id: str, content: str, token_callback, model: str = None):
+# Solutions agent workflow with matrix tools bound
+solutions_workflow = get_workflow(tools=SOLUTION_TOOLS)
+
+
+# System prompt for solutions agent
+SOLUTIONS_SYSTEM_PROMPT = """You are a Morphological Solutions Assistant. Your role is to help users explore and understand solutions from morphological analyses.
+
+You have access to tools that let you:
+1. List available morphological analyses
+2. Search solutions by keywords
+3. Get detailed information about specific solutions
+4. View solutions organized by clusters
+5. List available clusters for an analysis
+
+Guidelines:
+- Always start by listing available analyses if the user asks about solutions without specifying an analysis_id
+- When searching for solutions, use relevant keywords from the user's query
+- Present solutions clearly with their parameter assignments
+- Explain what each solution means in practical terms
+- If no solutions match the keywords, suggest alternative keywords or approaches
+
+Morphological Analysis Background:
+- A morphological analysis breaks down a problem into parameters, each with multiple states
+- Solutions are valid combinations of states across all parameters
+- Solutions can be filtered by keywords to find relevant approaches
+- Clusters group similar solutions together
+"""
+
+
+async def run_agent(thread_id: str, content: str, token_callback, model: str = None, solutions_mode: bool = False):
+    """Run the chat agent, optionally in solutions mode with matrix tools."""
     async with get_checkpointer() as checkpointer:
-        app_with_checkpoint = get_workflow(checkpointer, model_override=model)
-        lc_message = HumanMessage(content=content)
+        if solutions_mode:
+            # Use solutions workflow with matrix tools
+            app_with_checkpoint = get_workflow(checkpointer, model_override=model, tools=SOLUTION_TOOLS)
+            # Prepend system prompt for solutions mode
+            lc_message = [
+                SystemMessage(content=SOLUTIONS_SYSTEM_PROMPT),
+                HumanMessage(content=content)
+            ]
+        else:
+            app_with_checkpoint = get_workflow(checkpointer, model_override=model)
+            lc_message = HumanMessage(content=content)
 
         from langchain_core.callbacks import AsyncCallbackHandler
 
@@ -101,8 +145,8 @@ async def run_agent(thread_id: str, content: str, token_callback, model: str = N
         config = {"configurable": {"thread_id": thread_id}, "callbacks": [handler]}
 
         final_state = await app_with_checkpoint.ainvoke(
-            {"messages": [lc_message]},
+            {"messages": lc_message if isinstance(lc_message, list) else [lc_message]},
             config=config
         )
-        
+
         return final_state["messages"][-1].content

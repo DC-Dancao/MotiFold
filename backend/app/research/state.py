@@ -14,6 +14,7 @@ class ResearchLevel(str, Enum):
     STANDARD = "standard"
     EXTENDED = "extended"
     MANUAL = "manual"
+    MATRIX = "matrix"  # New level that explores solutions via morphological analysis
 
 
 LEVEL_DEFAULTS: dict[ResearchLevel, tuple[int, int]] = {
@@ -21,6 +22,7 @@ LEVEL_DEFAULTS: dict[ResearchLevel, tuple[int, int]] = {
     ResearchLevel.STANDARD: (3, 10),
     ResearchLevel.EXTENDED: (6, 20),
     ResearchLevel.MANUAL: (5, 10),
+    ResearchLevel.MATRIX: (3, 10),  # Uses morphological analysis for solution exploration
 }
 
 

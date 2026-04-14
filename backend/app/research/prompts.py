@@ -136,3 +136,24 @@ Write a well-structured markdown report that:
 
 Return JSON with key: report (str)
 """
+
+
+MATRIX_EXPLORATION_PROMPT = """You are a Morphological Analysis expert. Based on the research topic and findings, identify relevant morphological analyses that could help explore solution spaces.
+
+Research topic: {topic}
+
+Current research findings:
+{research_history}
+
+Your task:
+1. Look for existing morphological analyses in the database that are relevant to the research topic
+2. If found, explore solutions using keyword filtering to find relevant approaches
+3. Summarize key solution patterns discovered
+
+Return a summary of:
+- Any relevant morphological analyses found
+- Key solution patterns or approaches discovered
+- How these solutions relate to the research topic
+
+If no relevant analyses exist, note that morphological analysis could be a follow-up exploration method.
+"""

@@ -9,6 +9,7 @@ class Chat(Base):
     workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=True)
     title = Column(String, default="New Chat")
     model = Column(String, default="pro")  # auto, mini, pro, max
+    solutions_mode = Column(String, nullable=True, default=None)  # null = normal chat, "solutions" = solutions chatbot
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     owner = relationship("User", back_populates="chats")
