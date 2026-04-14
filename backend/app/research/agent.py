@@ -69,10 +69,10 @@ def _format_user_inputs(user_inputs: list) -> str:
 async def _llm_structured(model_name: str, schema, system: str, user: str):
     llm = get_llm(model_name=model_name, temperature=0)
     model = llm.with_structured_output(schema).with_retry(stop_after_attempt=3)
-    return await model.ainvoke([
-        SystemMessage(content=system),
-        HumanMessage(content=user),
-    ])
+    messages = [SystemMessage(content=system)]
+    if user:
+        messages.append(HumanMessage(content=user))
+    return await model.ainvoke(messages)
 
 
 async def _emit(thread_id: str, event: dict):
