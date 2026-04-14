@@ -35,7 +35,7 @@ class DynamicModelMiddleware(AgentMiddleware):
             truncated_input = user_input
             
         # Call mini model to route
-        router_llm = get_llm(model_name=settings.OPENAI_MODEL_MINI, streaming=False).with_structured_output(RouterDecision, method="json_schema", strict=True)
+        router_llm = get_llm(model_name=settings.OPENAI_MODEL_MINI, streaming=False).with_structured_output(RouterDecision, method="function_calling")
         
         system_prompt = (
             "Analyze the user's input and provide a routing decision.\n"

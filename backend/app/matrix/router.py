@@ -380,7 +380,7 @@ async def generate_keywords(
 ):
     try:
         llm = get_llm(model_name=settings.OPENAI_MODEL_MINI)
-        structured_llm = llm.with_structured_output(GenerateKeywordsResponse, method="json_schema", strict=True)
+        structured_llm = llm.with_structured_output(GenerateKeywordsResponse, method="function_calling")
 
         system_prompt = "You are a creative brainstorming assistant. Based on the user's prompt, generate a list of 5-10 concise, highly relevant keywords or short phrases."
 

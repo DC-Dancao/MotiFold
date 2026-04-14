@@ -1,3 +1,4 @@
+from alembic.config import Config as AlembicConfig
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.orm import declarative_base
@@ -9,6 +10,11 @@ engine = create_async_engine(settings.DATABASE_URL, echo=False)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 Base = declarative_base()
+
+
+def get_alembic_config() -> AlembicConfig:
+    """Return an Alembic Config object pointing at alembic.ini."""
+    return AlembicConfig("alembic.ini")
 
 
 async def get_db():

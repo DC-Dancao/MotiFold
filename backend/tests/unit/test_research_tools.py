@@ -6,7 +6,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.research.tools import (
-    web_search,
+    _web_search_impl as web_search,
     search_and_summarize,
     get_readable_text,
     summarize_content,
@@ -81,7 +81,8 @@ class TestWebSearch:
             MockSearchResult(title="Another Site", url="https://example.org"),
         ]
 
-        with patch("app.research.tools.search", new_callable=AsyncMock) as mock_search:
+        # search is a sync function — use regular MagicMock, not AsyncMock
+        with patch("app.research.tools.search") as mock_search:
             mock_search.return_value = iter(mock_results)
 
             with patch("app.research.tools.get_readable_text", new_callable=AsyncMock) as mock_fetch:
@@ -96,7 +97,7 @@ class TestWebSearch:
     @pytest.mark.asyncio
     async def test_search_handles_empty_results(self):
         """Empty search results don't crash."""
-        with patch("app.research.tools.search", new_callable=AsyncMock) as mock_search:
+        with patch("app.research.tools.search") as mock_search:
             mock_search.return_value = iter([])
 
             result = await web_search(queries=["nonexistent query"], max_results=5)
@@ -105,7 +106,7 @@ class TestWebSearch:
     @pytest.mark.asyncio
     async def test_search_error_does_not_crash(self):
         """Search exception is caught and logged, returns empty."""
-        with patch("app.research.tools.search", new_callable=AsyncMock) as mock_search:
+        with patch("app.research.tools.search") as mock_search:
             mock_search.side_effect = Exception("Network error")
 
             result = await web_search(queries=["test"], max_results=5)
@@ -127,7 +128,8 @@ class TestSearchAndSummarize:
             MockSearchResult(title="AI Agents", url="https://example.com/ai"),
         ]
 
-        with patch("app.research.tools.search", new_callable=AsyncMock) as mock_search:
+        # search is sync — must be regular MagicMock, not AsyncMock
+        with patch("app.research.tools.search") as mock_search:
             mock_search.return_value = iter(mock_results)
 
             with patch("app.research.tools.get_readable_text", new_callable=AsyncMock) as mock_fetch:
@@ -159,7 +161,8 @@ class TestSearchAndSummarize:
 
         call_count = 0
 
-        async def mock_search_fn(query, num_results, advanced):
+        # search is sync — must be regular function, not async
+        def mock_search_fn(query, num_results, advanced):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -186,7 +189,8 @@ class TestSearchAndSummarize:
     @pytest.mark.asyncio
     async def test_search_error_returns_empty_for_that_query(self):
         """A failed search for one query doesn't crash the whole pipeline."""
-        async def mock_search_fn(query, num_results, advanced):
+        # search is sync — must be regular function, not async
+        def mock_search_fn(query, num_results, advanced):
             if "fail" in query:
                 raise Exception("Search failed")
             return iter([MockSearchResult(title="Success", url="https://success.com")])
@@ -215,7 +219,8 @@ class TestSearchAndSummarize:
             MockSearchResult(title="Result 2", url="https://r2.com"),
         ]
 
-        with patch("app.research.tools.search", new_callable=AsyncMock) as mock_search:
+        # search is sync — must be regular MagicMock, not AsyncMock
+        with patch("app.research.tools.search") as mock_search:
             mock_search.return_value = iter(mock_results)
 
             with patch("app.research.tools.get_readable_text", new_callable=AsyncMock) as mock_fetch:

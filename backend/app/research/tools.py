@@ -58,20 +58,12 @@ async def get_readable_text(url: str, session: aiohttp.ClientSession) -> str:
         return f"[Error: {e}]"
 
 
-@tool(description=WEB_SEARCH_DESCRIPTION)
-async def web_search(
-    queries: Annotated[List[str], "List of search queries to execute"],
-    max_results: Annotated[int, "Max results per query"] = 10,
+async def _web_search_impl(
+    queries: list[str],
+    max_results: int,
 ) -> str:
     """
-    Execute web searches for the given queries and return summarized results.
-
-    Args:
-        queries: List of search queries
-        max_results: Number of results per query
-
-    Returns:
-        A string summarizing all search results
+    Core web search logic — used by both the @tool wrapper and tests.
     """
     logger.info(f"--- web_search called with queries: {queries}, max_results: {max_results}")
 
@@ -113,6 +105,15 @@ async def web_search(
     return str(all_results)
 
 
+@tool(description=WEB_SEARCH_DESCRIPTION)
+async def web_search(
+    queries: Annotated[List[str], "List of search queries to execute"],
+    max_results: Annotated[int, "Max results per query"] = 10,
+) -> str:
+    """Tool wrapper for web search."""
+    return await _web_search_impl(queries, max_results)
+
+
 # =============================================================================
 # URL Content Fetcher (for targeted page fetching)
 # =============================================================================
@@ -142,7 +143,7 @@ async def summarize_content(content: str, query: str) -> Summary:
         return Summary(summary="[Content too short to summarize]", key_excerpts="")
 
     llm = get_llm(model_name="pro", temperature=0)
-    summarizer = llm.with_structured_output(Summary).with_retry(
+    summarizer = llm.with_structured_output(Summary, method="function_calling").with_retry(
         stop_after_attempt=3,
     )
 
