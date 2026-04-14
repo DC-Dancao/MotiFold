@@ -45,31 +45,43 @@ def main():
             print("Run 'alembic upgrade head' first to create it.")
             return 1
 
-        # Check for pending migrations - only need distinct task names
+        # Check for pending or failed migrations - only need distinct task names
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT DISTINCT task_name
                 FROM public.tenant_migrations
-                WHERE status = 'pending'
+                WHERE status IN ('pending', 'completed_with_errors')
                 ORDER BY task_name
             """)
-            pending_task_names = [row[0] for row in cur.fetchall()]
+            task_names = [row[0] for row in cur.fetchall()]
 
-        if not pending_task_names:
-            print("No pending tenant migrations found.")
+        if not task_names:
+            print("No pending or failed tenant migrations found.")
             return 0
 
-        print(f"Found {len(pending_task_names)} pending task type(s):")
-        for task_name in pending_task_names:
+        print(f"Found {len(task_names)} migration task type(s) to dispatch:")
+        for task_name in task_names:
             print(f"  - {task_name}")
 
         # Dispatch once per task type via Celery
-        from app.worker.tenant_migration_tasks import run_add_solutions_mode_to_chats
+        from app.worker.tenant_migration_tasks import (
+            run_add_solutions_mode_to_chats,
+            run_add_extra_data_to_memory_units,
+        )
 
         print("\nDispatching migration tasks...")
-        run_add_solutions_mode_to_chats.delay()
+        dispatched = 0
+        for task_name in task_names:
+            if task_name == 'add_solutions_mode_to_chats':
+                run_add_solutions_mode_to_chats.delay()
+                dispatched += 1
+            elif task_name == 'add_extra_data_to_memory_units':
+                run_add_extra_data_to_memory_units.delay()
+                dispatched += 1
+            else:
+                print(f"  Warning: unknown task_name '{task_name}'")
 
-        print(f"\nDispatched 1 migration task to Celery.")
+        print(f"\nDispatched {dispatched} migration task(s) to Celery.")
         print("Check Celery worker logs for progress.")
         print("\nNote: Celery beat also checks for pending migrations every minute.")
         return 0

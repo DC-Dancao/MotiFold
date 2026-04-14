@@ -11,3 +11,7 @@ from typing import Final
 # Migration 2026_04_14_0004: add_solutions_mode_to_tenant_chats
 SOLUTIONS_MODE_MIGRATION_KEY: Final[str] = "2026_04_14_0004_add_solutions_mode_to_chats"
 SOLUTIONS_MODE_TASK_NAME: Final[str] = "add_solutions_mode_to_chats"
+
+# Migration 2026_04_14_0005: add_extra_data_to_memory_units
+EXTRA_DATA_MIGRATION_KEY: Final[str] = "2026_04_14_0005_add_extra_data_to_memory_units"
+EXTRA_DATA_TASK_NAME: Final[str] = "add_extra_data_to_memory_units"
