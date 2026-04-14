@@ -3,7 +3,7 @@ State definitions and Pydantic models for the Deep Research agent.
 """
 
 from enum import Enum
-from typing import Annotated, Optional, Union
+from typing import Annotated, Optional
 
 from langgraph.graph import MessagesState
 from pydantic import BaseModel, Field
@@ -14,7 +14,6 @@ class ResearchLevel(str, Enum):
     STANDARD = "standard"
     EXTENDED = "extended"
     MANUAL = "manual"
-    MATRIX = "matrix"  # New level that explores solutions via morphological analysis
 
 
 LEVEL_DEFAULTS: dict[ResearchLevel, tuple[int, int]] = {
@@ -22,7 +21,6 @@ LEVEL_DEFAULTS: dict[ResearchLevel, tuple[int, int]] = {
     ResearchLevel.STANDARD: (3, 10),
     ResearchLevel.EXTENDED: (6, 20),
     ResearchLevel.MANUAL: (5, 10),
-    ResearchLevel.MATRIX: (3, 10),  # Uses morphological analysis for solution exploration
 }
 
 
@@ -69,24 +67,6 @@ class FinalReport(BaseModel):
 # Graph State
 # =============================================================================
 
-class FollowupDecision(BaseModel):
-    needs_followup: bool = Field(
-        description="Whether the AI wants to explore more on the topic.",
-    )
-    question: str = Field(
-        description="A question presented to the user about what to explore next.",
-    )
-    option_1: str = Field(
-        description="First follow-up exploration option.",
-    )
-    option_2: str = Field(
-        description="Second follow-up exploration option.",
-    )
-    option_3: str = Field(
-        description="Third follow-up exploration option.",
-    )
-
-
 class ResearchState(MessagesState):
     research_topic: str
     search_queries: list[str]
@@ -97,9 +77,3 @@ class ResearchState(MessagesState):
     max_iterations: int
     max_results: int
     research_level: ResearchLevel
-    # Confirmation loop fields
-    research_history: list[str]
-    user_inputs: list[Union[str, dict]]
-    needs_followup: bool
-    followup_options: list[str]
-    is_complete: bool
