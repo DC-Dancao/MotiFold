@@ -38,8 +38,8 @@ class TenantMiddleware(BaseHTTPMiddleware):
             request.state.org_schema = None
             return await call_next(request)
 
-        # Skip /api prefix (API routes, not org-scoped)
-        if path.startswith("/api/"):
+        # Skip /api and /stats prefixes (API routes, not org-scoped)
+        if path.startswith("/api/") or path.startswith("/stats"):
             set_current_org(None)
             request.state.org_schema = None
             return await call_next(request)

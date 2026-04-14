@@ -2,19 +2,12 @@
 System prompts for the Deep Research agent.
 """
 
-CLARIFY_PROMPT = """Today's date is {date}.
-
-These are the messages exchanged so far:
-<Messages>
-{messages}
-</Messages>
-
-Assess whether you need to ask a clarifying question, or if you have enough information to begin research.
+CLARIFY_PROMPT = """Assess whether you need to ask a clarifying question, or if you have enough information to begin research.
 
 Guidelines:
 - Be concise if asking a question
 - If acronyms, abbreviations, or unknown terms appear, ask for clarification
-- If you can already see you've asked a clarifying question before, do not ask another unless ABSOLUTELY NECESSARY
+- If you have already asked a clarifying question before, do not ask another unless ABSOLUTELY NECESSARY
 - For product/travel research, prefer official/primary sources
 - For academic queries, prefer original papers over survey summaries
 
@@ -26,9 +19,6 @@ If not needed: need_clarification=false, question="", verification="<brief ackno
 
 RESEARCH_TOPIC_PROMPT = """Given the user's research request, produce a refined, detailed research question that will guide the research.
 
-User request: {message}
-Today's date: {date}
-
 Guidelines:
 1. Be highly specific — include all known constraints, preferences, and dimensions
 2. Fill in unstated but necessary dimensions as open-ended (e.g., "any region", "any time period")
@@ -37,29 +27,18 @@ Guidelines:
 5. For sources: prefer official sites, primary sources, reputable platforms
 6. For queries in a specific language: prioritize sources in that language
 
-Return JSON with key: topic (str)
-"""
+Return JSON with key: topic (str)"""
 
 SEARCH_PLAN_PROMPT = """Given a research topic, generate a list of focused search queries that together would provide comprehensive coverage.
-
-Research topic: {topic}
-Date: {date}
 
 Generate 3-8 search queries that:
 1. Each query is self-contained and focused on one aspect
 2. Together they cover different angles (background, specifics, recent developments, conflicting views)
 3. Use precise terminology when possible
 
-Return JSON with key: queries (list of strings)
-"""
+Return JSON with key: queries (list of strings)"""
 
 SYNTHESIZE_PROMPT = """You are a research synthesizer. Given a list of search results with summaries, produce a concise synthesized note.
-
-Research topic: {topic}
-Date: {date}
-
-Search results:
-{results}
 
 Produce a synthesized note that:
 1. Integrates information across multiple sources
@@ -67,19 +46,9 @@ Produce a synthesized note that:
 3. Keeps key facts and citations (URLs)
 4. Is 2-4 paragraphs max
 
-Return JSON with keys: summary (str), key_excerpts (str)
-"""
+Return JSON with keys: summary (str), key_excerpts (str)"""
 
 FOLLOWUP_DECISION_PROMPT = """You are a deep research AI. After each research iteration, you must decide whether more follow-up research would be valuable.
-
-Research topic: {topic}
-Date: {date}
-
-Current research findings:
-{research_history}
-
-User inputs so far:
-{user_inputs}
 
 Decide if more follow-up research would add value. Consider:
 1. Are there gaps in the current research?
@@ -94,19 +63,9 @@ Respond in JSON with keys:
 - option_2 (str): second follow-up exploration direction
 - option_3 (str): third follow-up exploration direction
 
-If needs_followup is false, question and options will be ignored.
-"""
+If needs_followup is false, question and options will be ignored."""
 
 FOLLOWUP_SEARCH_PROMPT = """Given the research topic, current findings, and user's follow-up input, generate new search queries to explore the requested direction.
-
-Research topic: {topic}
-Date: {date}
-
-Current research findings:
-{research_history}
-
-User's follow-up choice/input:
-{user_input}
 
 Generate 2-5 focused search queries that:
 1. Are directly informed by the user's follow-up choice
@@ -114,17 +73,10 @@ Generate 2-5 focused search queries that:
 3. Complement (not duplicate) the existing research
 4. Are self-contained and precise
 
-Return JSON with key: queries (list of strings)
-"""
+Return JSON with key: queries (list of strings)"""
 
 
 REPORT_PROMPT = """You are a research report writer. Given synthesized research notes, produce a comprehensive markdown report.
-
-Research topic: {topic}
-Date: {date}
-
-Synthesized notes from {num_notes} research iterations:
-{notes}
 
 Write a well-structured markdown report that:
 1. Starts with a clear introduction to the topic
@@ -134,16 +86,10 @@ Write a well-structured markdown report that:
 5. Uses appropriate headings, lists, and emphasis
 6. Is detailed enough to be useful but focused on what matters
 
-Return JSON with key: report (str)
-"""
+Return JSON with key: report (str)"""
 
 
 MATRIX_EXPLORATION_PROMPT = """You are a Morphological Analysis expert. Based on the research topic and findings, identify relevant morphological analyses that could help explore solution spaces.
-
-Research topic: {topic}
-
-Current research findings:
-{research_history}
 
 Your task:
 1. Look for existing morphological analyses in the database that are relevant to the research topic
@@ -155,5 +101,4 @@ Return a summary of:
 - Key solution patterns or approaches discovered
 - How these solutions relate to the research topic
 
-If no relevant analyses exist, note that morphological analysis could be a follow-up exploration method.
-"""
+If no relevant analyses exist, note that morphological analysis could be a follow-up exploration method."""

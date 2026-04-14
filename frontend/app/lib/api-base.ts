@@ -4,8 +4,9 @@ function getProcessEnv(): NodeJS.ProcessEnv {
   return typeof process !== 'undefined' && process.env ? process.env : {};
 }
 
-export function resolveBrowserApiUrl(_env?: NodeJS.ProcessEnv) {
-  return '';
+export function resolveBrowserApiUrl(env?: NodeJS.ProcessEnv) {
+  const processEnv = env || getProcessEnv();
+  return processEnv.NEXT_PUBLIC_API_URL || '';
 }
 
 export function resolveServerApiUrl(env?: NodeJS.ProcessEnv) {
