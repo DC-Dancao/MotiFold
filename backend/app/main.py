@@ -13,7 +13,6 @@ for logger_name in ['app', 'uvicorn', 'uvicorn.error', 'uvicorn.access']:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.llm.checkpointer import ensure_checkpointer_ready
-from app.core.database import ensure_schema_ready
 from app.matrix.stream import close_redis_clients
 from app.auth.router import router as auth_router
 from app.workspace.router import router as workspace_router
@@ -48,7 +47,6 @@ _mcp_http_app = _mcp_server.http_app(transport="streamable-http")
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    await ensure_schema_ready()
     await ensure_checkpointer_ready()
     # Note: embedding service is lazy-loaded on first use to avoid blocking startup
     yield
