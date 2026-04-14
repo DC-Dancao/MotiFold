@@ -17,16 +17,21 @@ pytestmark = [pytest.mark.unit]
 
 
 # --------------------------------------------------------------------------
-# Mock result objects (similar to what googlesearch.search returns)
+# Mock result objects (similar to what ddgs returns)
 # --------------------------------------------------------------------------
 
 
 class MockSearchResult:
-    """Mock for googlesearch search result object with .title and .url."""
+    """Mock for ddgs search result dict with title, href, body."""
 
-    def __init__(self, title: str, url: str):
+    def __init__(self, title: str, url: str, body: str = ""):
         self.title = title
         self.url = url
+        self.href = url
+        self.body = body
+
+    def __getitem__(self, key):
+        return getattr(self, key)
 
 
 # --------------------------------------------------------------------------
@@ -71,20 +76,20 @@ class TestGetReadableText:
 
 
 class TestWebSearch:
-    """web_search runs Google searches and fetches page content."""
+    """web_search runs searches and fetches page content."""
 
     @pytest.mark.asyncio
     async def test_search_results_include_title_url_content(self):
         """web_search returns results with title, URL, and fetched content."""
         mock_results = [
-            MockSearchResult(title="Example Site", url="https://example.com"),
-            MockSearchResult(title="Another Site", url="https://example.org"),
+            {"title": "Example Site", "href": "https://example.com", "body": ""},
+            {"title": "Another Site", "href": "https://example.org", "body": ""},
         ]
 
-        # search is a sync function — use regular MagicMock, not AsyncMock
-        with patch("app.research.tools.search") as mock_search:
-            mock_search.return_value = iter(mock_results)
+        mock_ddgs_instance = MagicMock()
+        mock_ddgs_instance.text.return_value = mock_results
 
+        with patch("app.research.tools.DDGS", return_value=mock_ddgs_instance):
             with patch("app.research.tools.get_readable_text", new_callable=AsyncMock) as mock_fetch:
                 mock_fetch.side_effect = ["Example page content", "Another page content"]
 
@@ -97,17 +102,18 @@ class TestWebSearch:
     @pytest.mark.asyncio
     async def test_search_handles_empty_results(self):
         """Empty search results don't crash."""
-        with patch("app.research.tools.search") as mock_search:
-            mock_search.return_value = iter([])
+        mock_ddgs_instance = MagicMock()
+        mock_ddgs_instance.text.return_value = []
 
+        with patch("app.research.tools.DDGS", return_value=mock_ddgs_instance):
             result = await web_search(queries=["nonexistent query"], max_results=5)
             assert "[]" in result or result == "[]"
 
     @pytest.mark.asyncio
     async def test_search_error_does_not_crash(self):
         """Search exception is caught and logged, returns empty."""
-        with patch("app.research.tools.search") as mock_search:
-            mock_search.side_effect = Exception("Network error")
+        with patch("app.research.tools.DDGS") as mock_ddgs:
+            mock_ddgs.return_value.text.side_effect = Exception("Network error")
 
             result = await web_search(queries=["test"], max_results=5)
             assert result == "[]"
@@ -125,13 +131,13 @@ class TestSearchAndSummarize:
     async def test_returns_summarized_results(self):
         """Results include query, title, url, summary, and key_excerpts."""
         mock_results = [
-            MockSearchResult(title="AI Agents", url="https://example.com/ai"),
+            {"title": "AI Agents", "href": "https://example.com/ai", "body": ""},
         ]
 
-        # search is sync — must be regular MagicMock, not AsyncMock
-        with patch("app.research.tools.search") as mock_search:
-            mock_search.return_value = iter(mock_results)
+        mock_ddgs_instance = MagicMock()
+        mock_ddgs_instance.text.return_value = mock_results
 
+        with patch("app.research.tools.DDGS", return_value=mock_ddgs_instance):
             with patch("app.research.tools.get_readable_text", new_callable=AsyncMock) as mock_fetch:
                 mock_fetch.return_value = "AI agents are software that can autonomously write code."
 
@@ -156,20 +162,22 @@ class TestSearchAndSummarize:
     @pytest.mark.asyncio
     async def test_multiple_queries_all_processed(self):
         """Multiple queries each get their own results."""
-        mock_results_1 = [MockSearchResult(title="Site A", url="https://a.com")]
-        mock_results_2 = [MockSearchResult(title="Site B", url="https://b.com")]
+        mock_results_1 = [{"title": "Site A", "href": "https://a.com", "body": ""}]
+        mock_results_2 = [{"title": "Site B", "href": "https://b.com", "body": ""}]
 
         call_count = 0
 
-        # search is sync — must be regular function, not async
-        def mock_search_fn(query, num_results, advanced):
+        def mock_text_fn(query, max_results=None):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return iter(mock_results_1)
-            return iter(mock_results_2)
+                return mock_results_1
+            return mock_results_2
 
-        with patch("app.research.tools.search", side_effect=mock_search_fn):
+        mock_ddgs_instance = MagicMock()
+        mock_ddgs_instance.text.side_effect = mock_text_fn
+
+        with patch("app.research.tools.DDGS", return_value=mock_ddgs_instance):
             with patch("app.research.tools.get_readable_text", new_callable=AsyncMock) as mock_fetch:
                 mock_fetch.return_value = "Page content."
 
@@ -189,13 +197,15 @@ class TestSearchAndSummarize:
     @pytest.mark.asyncio
     async def test_search_error_returns_empty_for_that_query(self):
         """A failed search for one query doesn't crash the whole pipeline."""
-        # search is sync — must be regular function, not async
-        def mock_search_fn(query, num_results, advanced):
+        def mock_text_fn(query, max_results=None):
             if "fail" in query:
                 raise Exception("Search failed")
-            return iter([MockSearchResult(title="Success", url="https://success.com")])
+            return [{"title": "Success", "href": "https://success.com", "body": ""}]
 
-        with patch("app.research.tools.search", side_effect=mock_search_fn):
+        mock_ddgs_instance = MagicMock()
+        mock_ddgs_instance.text.side_effect = mock_text_fn
+
+        with patch("app.research.tools.DDGS", return_value=mock_ddgs_instance):
             with patch("app.research.tools.get_readable_text", new_callable=AsyncMock) as mock_fetch:
                 mock_fetch.return_value = "Content."
 
@@ -215,14 +225,14 @@ class TestSearchAndSummarize:
     async def test_progress_callback_called(self):
         """Progress callback is invoked after each result."""
         mock_results = [
-            MockSearchResult(title="Result 1", url="https://r1.com"),
-            MockSearchResult(title="Result 2", url="https://r2.com"),
+            {"title": "Result 1", "href": "https://r1.com", "body": ""},
+            {"title": "Result 2", "href": "https://r2.com", "body": ""},
         ]
 
-        # search is sync — must be regular MagicMock, not AsyncMock
-        with patch("app.research.tools.search") as mock_search:
-            mock_search.return_value = iter(mock_results)
+        mock_ddgs_instance = MagicMock()
+        mock_ddgs_instance.text.return_value = mock_results
 
+        with patch("app.research.tools.DDGS", return_value=mock_ddgs_instance):
             with patch("app.research.tools.get_readable_text", new_callable=AsyncMock) as mock_fetch:
                 mock_fetch.return_value = "Content."
 

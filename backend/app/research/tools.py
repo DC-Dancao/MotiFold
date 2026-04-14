@@ -12,7 +12,7 @@ from typing import Annotated, List
 
 import aiohttp
 import bs4
-from googlesearch import search
+from ddgs import DDGS
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
@@ -75,14 +75,12 @@ async def _web_search_impl(
 
         for query in queries:
             try:
-                results = await asyncio.to_thread(
-                    search, query, num_results=max_results, advanced=True
-                )
-                query_results[query] = list(results)
+                results = list(DDGS().text(query, max_results=max_results))
+                query_results[query] = results
                 for result in query_results[query]:
-                    search_tasks.append(get_readable_text(result.url, session))
+                    search_tasks.append(get_readable_text(result["href"], session))
             except Exception as e:
-                logger.error(f"Google search failed for query '{query}': {e}")
+                logger.error(f"Search failed for query '{query}': {e}")
                 query_results[query] = []
 
         web_texts = await asyncio.gather(*search_tasks)
@@ -95,8 +93,8 @@ async def _web_search_impl(
                     all_results.append(
                         {
                             "query": query,
-                            "title": result.title,
-                            "url": result.url,
+                            "title": result.get("title", ""),
+                            "url": result.get("href", ""),
                             "content": web_text,
                         }
                     )
@@ -200,19 +198,17 @@ async def search_and_summarize(
 
         for query in queries:
             try:
-                results = await asyncio.to_thread(
-                    search, query, num_results=max_results, advanced=True
-                )
-                query_results[query] = list(results)
+                results = list(DDGS().text(query, max_results=max_results))
+                query_results[query] = results
             except Exception as e:
-                logger.error(f"Google search failed for '{query}': {e}")
+                logger.error(f"Search failed for '{query}': {e}")
                 query_results[query] = []
 
         fetch_tasks = []
         result_map: list[tuple[str, object]] = []
         for query, results in query_results.items():
             for result in results:
-                fetch_tasks.append(get_readable_text(result.url, session))
+                fetch_tasks.append(get_readable_text(result["href"], session))
                 result_map.append((query, result))
 
         web_texts = await asyncio.gather(*fetch_tasks)
@@ -221,8 +217,8 @@ async def search_and_summarize(
             summary = await summarize_content(web_text, query)
             item = {
                 "query": query,
-                "title": result.title,
-                "url": result.url,
+                "title": result.get("title", ""),
+                "url": result.get("href", ""),
                 "summary": summary.summary,
                 "key_excerpts": summary.key_excerpts,
             }
