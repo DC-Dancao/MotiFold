@@ -50,6 +50,13 @@ services:
       - "18000:8000"
     env_file:
       - ./backend/.env
+    environment:
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - https_proxy=${https_proxy:-}
+      - http_proxy=${http_proxy:-}
+      - NO_PROXY=${NO_PROXY:-}
+      - no_proxy=${no_proxy:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,6 +73,13 @@ services:
       target: prod
     env_file:
       - ./backend/.env
+    environment:
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - https_proxy=${https_proxy:-}
+      - http_proxy=${http_proxy:-}
+      - NO_PROXY=${NO_PROXY:-}
+      - no_proxy=${no_proxy:-}
     depends_on:
       postgres:
         condition: service_healthy
