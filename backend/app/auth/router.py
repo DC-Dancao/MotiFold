@@ -169,6 +169,18 @@ class ApiKeyCreated(BaseModel):
     key_prefix: str
 
 
+def _extract_bearer_or_cookie_token(request: Request) -> str:
+    """Extract token from Authorization header or fallback to cookie."""
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        return auth_header[7:]
+    # Fallback to cookie (like get_current_user does)
+    token = request.cookies.get("motifold_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="Bearer token required")
+    return token
+
+
 @router.post("/api-key", response_model=ApiKeyCreated)
 async def create_api_key(
     request: Request,
@@ -179,13 +191,11 @@ async def create_api_key(
     Generate a new API key for programmatic access.
     The full key is only returned once — save it securely.
     """
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Bearer token required")
-
-    token = auth_header[7:]
     try:
+        token = _extract_bearer_or_cookie_token(request)
         user = await _get_user_by_token(token, db)
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid token")
 
@@ -233,13 +243,11 @@ async def list_api_keys(
     db: AsyncSession = Depends(get_db),
 ):
     """List all API keys for the authenticated user (without secrets)."""
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Bearer token required")
-
-    token = auth_header[7:]
     try:
+        token = _extract_bearer_or_cookie_token(request)
         user = await _get_user_by_token(token, db)
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid token")
 
@@ -270,13 +278,11 @@ async def delete_api_key(
     db: AsyncSession = Depends(get_db),
 ):
     """Delete an API key."""
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Bearer token required")
-
-    token = auth_header[7:]
     try:
+        token = _extract_bearer_or_cookie_token(request)
         user = await _get_user_by_token(token, db)
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid token")
 
