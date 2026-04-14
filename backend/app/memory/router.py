@@ -6,9 +6,10 @@ Provides REST endpoints for memory operations.
 
 from typing import Optional
 from uuid import UUID
+import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db_with_schema
@@ -22,8 +23,21 @@ from app.memory.schemas import (
     RetainResponse,
     RecentMemoriesResponse,
 )
+from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/memory", tags=["memory"])
+
+
+class RAGIngestRequest(BaseModel):
+    """Schema for ingesting a research report into RAG."""
+    report_id: int = Field(..., description="Research report ID to ingest")
+
+
+class RAGQueryRequest(BaseModel):
+    """Schema for RAG query."""
+    query: str = Field(..., description="Query text")
+    limit: int = Field(default=5, ge=1, le=20, description="Max results")
+    use_reranker: bool = Field(default=True, description="Use cross-encoder reranking")
 
 
 async def _verify_workspace_access(
@@ -244,3 +258,180 @@ async def get_memory_hit_rate(
     service = MemoryService(db)
     hit_rate = await service.get_hit_rate(workspace_id)
     return {"hit_rate": hit_rate}
+
+
+@router.post("/{workspace_id}/rag/ingest")
+async def ingest_research_for_rag(
+    workspace_id: int,
+    request: RAGIngestRequest,
+    db: AsyncSession = Depends(get_db_with_schema),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Ingest a research report into memory for RAG.
+
+    Chunks the research report content and stores it as memory units
+    with embeddings for vector search.
+
+    Args:
+        workspace_id: The workspace ID
+        request: Contains report_id to ingest
+
+    Returns:
+        Number of chunks ingested
+    """
+    await _verify_workspace_access(workspace_id, db, current_user)
+
+    from app.research.models import ResearchReport
+
+    # Fetch the research report
+    result = await db.execute(
+        select(ResearchReport).where(ResearchReport.id == request.report_id)
+    )
+    report = result.scalars().first()
+
+    if not report:
+        raise HTTPException(status_code=404, detail="Research report not found")
+
+    if report.report is None or report.report == "":
+        raise HTTPException(status_code=400, detail="Research report has no content")
+
+    # Chunk the report content
+    chunk_size = 1000  # characters
+    overlap = 200  # overlap between chunks
+    chunks = []
+    content = report.report
+
+    if len(content) <= chunk_size:
+        chunks.append(content)
+    else:
+        start = 0
+        while start < len(content):
+            end = start + chunk_size
+            # Try to break at sentence boundary
+            if end < len(content):
+                for sep in ['。', '！', '？', '.', '!', '?', '\n']:
+                    last_sep = content.rfind(sep, start, end)
+                    if last_sep > start:
+                        end = last_sep + 1
+                        break
+            chunk = content[start:end].strip()
+            if chunk:
+                chunks.append(chunk)
+            start = end - overlap
+            if start < 0:
+                start = 0
+
+    # Store chunks as memory units
+    service = MemoryService(db)
+    bank = await service.ensure_bank(workspace_id)
+
+    from app.memory.models import MemoryUnit
+
+    # Check if already ingested by looking for memories with this report's metadata
+    existing_result = await db.execute(
+        select(func.count(MemoryUnit.id)).where(
+            MemoryUnit.bank_id == bank.id,
+            MemoryUnit.extra_data.contains({"source": "research", "report_id": str(report.id)})
+        )
+    )
+    existing_count = existing_result.scalar() or 0
+
+    if existing_count > 0:
+        return {
+            "status": "already_ingested",
+            "chunks": existing_count,
+            "message": f"Report already ingested ({existing_count} chunks)"
+        }
+
+    # Ingest each chunk
+    ingested = 0
+    try:
+        if service.embedding is None:
+            from app.memory.embedding import get_embedding_service
+            service.embedding = get_embedding_service()
+
+        for idx, chunk_text in enumerate(chunks):
+            # Generate embedding
+            try:
+                embedding = service.embedding.encode([chunk_text])[0]
+            except Exception as e:
+                logger.warning(f"Failed to generate embedding for chunk {idx}: {e}")
+                embedding = None
+
+            memory = MemoryUnit(
+                bank_id=bank.id,
+                content=chunk_text,
+                embedding=embedding,
+                memory_type="context",
+                extra_data={
+                    "source": "research",
+                    "report_id": str(report.id),
+                    "chunk_index": idx,
+                    "research_topic": report.research_topic or report.query,
+                },
+                entity_ids=[],
+            )
+            db.add(memory)
+            ingested += 1
+
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to ingest: {str(e)}")
+
+    return {
+        "status": "success",
+        "chunks": ingested,
+        "message": f"Ingested {ingested} chunks from research report"
+    }
+
+
+@router.post("/{workspace_id}/rag/query")
+async def query_rag(
+    workspace_id: int,
+    request: RAGQueryRequest,
+    db: AsyncSession = Depends(get_db_with_schema),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Query RAG memories for a workspace.
+
+    Searches memories created from research reports using multi-strategy retrieval
+    (vector + BM25) with optional cross-encoder reranking.
+
+    Args:
+        workspace_id: The workspace ID
+        request: Contains query, limit, and use_reranker flag
+
+    Returns:
+        List of relevant memory chunks
+    """
+    await _verify_workspace_access(workspace_id, db, current_user)
+
+    service = MemoryService(db)
+
+    # Use multi-strategy recall with reranking for best results
+    results = await service.recall(
+        workspace_id=workspace_id,
+        query=request.query,
+        memory_type="context",  # Only search context (RAG) memories
+        limit=request.limit,
+        use_multi_strategy=True,
+        use_reranker=request.use_reranker,
+    )
+
+    return {
+        "results": [
+            {
+                "id": r.id,
+                "content": r.content,
+                "memory_type": r.memory_type,
+                "similarity": r.similarity,
+                "source": r.metadata.get("source") if r.metadata else None,
+            }
+            for r in results
+        ],
+        "query": request.query,
+        "total": len(results)
+    }

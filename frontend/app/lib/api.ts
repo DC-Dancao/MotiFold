@@ -134,10 +134,19 @@ export const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
     ? localStorage.getItem('motifold_current_org_id')
     : null;
 
+  const accessToken = typeof window !== 'undefined'
+    ? localStorage.getItem('motifold_access_token')
+    : null;
+
   const headers = new Headers(options.headers);
 
   if (currentOrgId && !url.includes('/auth/')) {
     headers.set('X-Org-ID', currentOrgId);
+  }
+
+  // Add Authorization header for endpoints that require Bearer token (not cookie fallback)
+  if (accessToken && !url.includes('/auth/refresh')) {
+    headers.set('Authorization', `Bearer ${accessToken}`);
   }
 
   const finalOptions: RequestInit = {

@@ -19,6 +19,7 @@ import {
   Brain,
   Terminal,
   LayoutDashboard,
+  BookOpen,
 } from 'lucide-react';
 
 interface Chat {
@@ -1104,6 +1105,14 @@ export default function LeftSidebar() {
                 >
                   <Terminal className={`w-4 h-4 flex-shrink-0 ${pathname === '/mcp' ? 'text-indigo-600' : 'text-slate-400'}`} />
                   <span className="font-medium">MCP</span>
+                </button>
+
+                <button
+                  onClick={() => router.push('/rag')}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 ${pathname === '/rag' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
+                >
+                  <BookOpen className={`w-4 h-4 flex-shrink-0 ${pathname === '/rag' ? 'text-indigo-600' : 'text-slate-400'}`} />
+                  <span className="font-medium">RAG</span>
                 </button>
               </div>
             )}

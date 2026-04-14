@@ -187,12 +187,14 @@ class MemoryService:
         max_tokens: int = 4000,
         similarity_threshold: float = DEFAULT_SIMILARITY_THRESHOLD,
         use_multi_strategy: bool = False,
+        use_reranker: bool = False,
     ) -> list[MemoryRecallResult]:
         """
         Recall relevant memories for a query.
 
         Uses vector similarity search to find relevant memories.
-        When use_multi_strategy=True, combines semantic + keyword search.
+        When use_multi_strategy=True, combines semantic + BM25 keyword search with RRF fusion.
+        When use_reranker=True, applies cross-encoder neural reranking after retrieval.
 
         Args:
             workspace_id: The workspace ID
@@ -202,13 +204,15 @@ class MemoryService:
             max_tokens: Maximum total tokens (approximate)
             similarity_threshold: Minimum similarity score (0-1)
             use_multi_strategy: If True, combines semantic + keyword strategies
+            use_reranker: If True, applies cross-encoder reranking (requires multi-strategy)
 
         Returns:
             List of MemoryRecallResult sorted by similarity
         """
         if use_multi_strategy:
             return await self._recall_multi_strategy(
-                workspace_id, query, memory_type, limit, max_tokens, similarity_threshold
+                workspace_id, query, memory_type, limit, max_tokens, similarity_threshold,
+                use_reranker=use_reranker
             )
         return await self._recall_single_strategy(
             workspace_id, query, memory_type, limit, max_tokens, similarity_threshold
@@ -305,8 +309,9 @@ class MemoryService:
         limit: int = DEFAULT_RECALL_LIMIT,
         max_tokens: int = 4000,
         similarity_threshold: float = DEFAULT_SIMILARITY_THRESHOLD,
+        use_reranker: bool = False,
     ) -> list[MemoryRecallResult]:
-        """Multi-strategy recall combining semantic + keyword search with RRF fusion."""
+        """Multi-strategy recall combining semantic + BM25 + optional reranking."""
         from app.memory.fusion import rrf_fusion
 
         # Get results from both strategies in parallel
@@ -340,6 +345,21 @@ class MemoryService:
         # Fuse results
         fused = rrf_fusion([semantic_dicts, keyword_dicts])
 
+        # Apply cross-encoder reranking if enabled
+        if use_reranker and fused:
+            try:
+                from app.memory.reranker import get_reranker
+                reranker = get_reranker()
+                # Use top_k = limit * 2 to get more candidates for reranking
+                reranked = await reranker.rerank(
+                    query=query,
+                    candidates=fused[:limit * 2],
+                    top_k=limit,
+                )
+                fused = reranked
+            except Exception as e:
+                logger.warning(f"Reranking failed, using fused results: {e}")
+
         # Update mentioned_at for returned memories
         fused_ids = [r["id"] for r in fused[:limit]]
         if fused_ids:
@@ -359,7 +379,7 @@ class MemoryService:
                 id=r["id"],
                 content=r["content"],
                 memory_type=r["memory_type"],
-                similarity=r.get("similarity", r.get("rrf_score", 1.0)),
+                similarity=r.get("similarity", r.get("rrf_score", r.get("combined_score", 1.0))),
                 metadata=r.get("metadata", {}),
             )
             for r in fused[:limit]
