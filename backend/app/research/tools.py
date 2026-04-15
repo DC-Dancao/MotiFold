@@ -141,9 +141,7 @@ async def summarize_content(content: str, query: str) -> Summary:
         return Summary(summary="[Content too short to summarize]", key_excerpts="")
 
     llm = get_llm(model_name="pro", temperature=0)
-    summarizer = llm.with_structured_output(Summary, method="function_calling").with_retry(
-        stop_after_attempt=3,
-    )
+    summarizer = llm.with_structured_output(Summary, method="function_calling")
 
     system_prompt = (
         "You are a research assistant. Given a piece of content and a research query, "
@@ -152,23 +150,30 @@ async def summarize_content(content: str, query: str) -> Summary:
         "key_excerpts: 2-4 direct quotes or facts from the content most relevant to the query."
     )
 
-    try:
-        result = await summarizer.ainvoke(
-            [
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": f"Research query: {query}\n\nContent:\n{content[:8000]}",
-                },
-            ]
-        )
-        return result
-    except Exception as e:
-        logger.warning(f"Summarization failed: {e}")
-        return Summary(
-            summary=f"[Summary unavailable: {e}]",
-            key_excerpts="",
-        )
+    last_error = None
+    for attempt in range(3):
+        try:
+            result = await summarizer.ainvoke(
+                [
+                    {"role": "system", "content": system_prompt},
+                    {
+                        "role": "user",
+                        "content": f"Research query: {query}\n\nContent:\n{content[:8000]}",
+                    },
+                ]
+            )
+            if result is not None:
+                return result
+            last_error = f"Attempt {attempt + 1}: summarizer returned None"
+        except Exception as e:
+            last_error = f"Attempt {attempt + 1}: {e}"
+            logger.warning(f"Summarization attempt failed: {e}")
+
+    logger.warning(f"All summarization attempts failed: {last_error}")
+    return Summary(
+        summary=f"[Summary unavailable: {last_error}]",
+        key_excerpts="",
+    )
 
 
 # =============================================================================
@@ -215,6 +220,8 @@ async def search_and_summarize(
 
         for (query, result), web_text in zip(result_map, web_texts):
             summary = await summarize_content(web_text, query)
+            if summary is None:
+                summary = Summary(summary="[Summary unavailable]", key_excerpts="")
             item = {
                 "query": query,
                 "title": result.get("title", ""),
