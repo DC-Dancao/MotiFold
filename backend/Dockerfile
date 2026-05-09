@@ -28,6 +28,8 @@ RUN uv pip install --system -r pyproject.toml
 # Copy the rest of the application
 COPY --chown=appuser:appuser . .
 
+RUN mkdir -p /app/logs && chown appuser:appuser /app/logs
+
 USER appuser
 
 # Default command (can be overridden by compose.yaml)
@@ -42,6 +44,8 @@ RUN uv pip install --system -r pyproject.toml --group dev
 # Copy the rest of the application
 COPY --chown=appuser:appuser . .
 
+RUN mkdir -p /app/logs && chown appuser:appuser /app/logs
+
 USER appuser
 
 # Default command for dev mode
@@ -54,6 +58,8 @@ FROM base AS migration
 RUN uv pip install --system -r pyproject.toml
 
 COPY --chown=appuser:appuser . .
+
+RUN mkdir -p /app/logs && chown appuser:appuser /app/logs
 
 USER appuser
 
