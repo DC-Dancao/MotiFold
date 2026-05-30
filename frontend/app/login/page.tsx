@@ -24,7 +24,7 @@ export default function LoginPage() {
     try {
       if (!isLogin) {
         // Register flow
-        const regRes = await fetch(`${apiUrl}/auth/register`, {
+        const regRes = await fetch(`${apiUrl}/api/auth/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username, password })
@@ -37,7 +37,7 @@ export default function LoginPage() {
       }
 
       // Login flow (for both login and after successful register)
-      const loginRes = await fetch(`${apiUrl}/auth/login`, {
+      const loginRes = await fetch(`${apiUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ username, password })
@@ -56,8 +56,8 @@ export default function LoginPage() {
       // Store in cookies for proxy/server-side access and backend auth
       await setAuthCookies(data.access_token, data.refresh_token, username);
 
-      // Redirect to main app
-      router.push('/');
+      // Redirect straight to the chat workspace (skips the "/" → "/chat" hop).
+      router.push('/chat');
 
     } catch (err) {
       if (err instanceof Error) {

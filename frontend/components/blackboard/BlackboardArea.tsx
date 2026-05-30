@@ -133,7 +133,7 @@ export default function BlackboardArea() {
     try {
       setIsLoading(true);
       const apiUrl = getApiUrl();
-      const res = await fetchWithAuth(`${apiUrl}/blackboard/${id}`);
+      const res = await fetchWithAuth(`${apiUrl}/api/blackboard/${id}`);
       if (res.ok) {
         const data = await res.json();
         setStatus(data.status);
@@ -170,7 +170,7 @@ export default function BlackboardArea() {
       const apiUrl = getApiUrl();
       const wsId = localStorage.getItem('motifold_active_workspace_id');
       
-      const res = await fetchWithAuth(`${apiUrl}/blackboard/`, {
+      const res = await fetchWithAuth(`${apiUrl}/api/blackboard`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 

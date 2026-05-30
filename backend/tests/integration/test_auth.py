@@ -10,7 +10,7 @@ async def test_register_and_login(async_client):
     """Register a new user and then login with valid credentials."""
     # 1. Register
     reg_res = await async_client.post(
-        "/auth/register",
+        "/api/auth/register",
         json={"username": "realuser", "password": "realpassword"}
     )
     assert reg_res.status_code == 200
@@ -20,7 +20,7 @@ async def test_register_and_login(async_client):
 
     # 2. Login
     login_res = await async_client.post(
-        "/auth/login",
+        "/api/auth/login",
         data={"username": "realuser", "password": "realpassword"}
     )
     assert login_res.status_code == 200
@@ -30,7 +30,7 @@ async def test_register_and_login(async_client):
 
     # 3. Invalid Login
     invalid_res = await async_client.post(
-        "/auth/login",
+        "/api/auth/login",
         data={"username": "realuser", "password": "wrongpassword"}
     )
     assert invalid_res.status_code == 401
@@ -39,11 +39,11 @@ async def test_register_and_login(async_client):
 async def test_register_duplicate_username(async_client):
     """Registering with existing username should fail."""
     await async_client.post(
-        "/auth/register",
+        "/api/auth/register",
         json={"username": "dupuser", "password": "password123"}
     )
     dup_res = await async_client.post(
-        "/auth/register",
+        "/api/auth/register",
         json={"username": "dupuser", "password": "password456"}
     )
     assert dup_res.status_code == 400

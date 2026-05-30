@@ -16,7 +16,7 @@ class TestOrgCreation:
     async def test_create_org_valid_slug(self, auth_client: AsyncClient, db_session: AsyncSession, test_user: User):
         """Create org with valid slug returns 200 and status provisioning."""
         response = await auth_client.post(
-            "/api/orgs/",
+            "/api/orgs",
             json={"name": "Test Org", "slug": "test-org"},
         )
         assert response.status_code == 200
@@ -28,7 +28,7 @@ class TestOrgCreation:
     async def test_create_org_invalid_slug_uppercase(self, auth_client: AsyncClient, db_session: AsyncSession):
         """Create org with uppercase slug returns 422."""
         response = await auth_client.post(
-            "/api/orgs/",
+            "/api/orgs",
             json={"name": "Test Org", "slug": "TestOrg"},
         )
         assert response.status_code == 422
@@ -36,7 +36,7 @@ class TestOrgCreation:
     async def test_create_org_invalid_slug_special_chars(self, auth_client: AsyncClient, db_session: AsyncSession):
         """Create org with special characters returns 422."""
         response = await auth_client.post(
-            "/api/orgs/",
+            "/api/orgs",
             json={"name": "Test Org", "slug": "test@org!"},
         )
         assert response.status_code == 422
@@ -45,12 +45,12 @@ class TestOrgCreation:
         """Create org with duplicate slug returns 400."""
         # Create first org
         await auth_client.post(
-            "/api/orgs/",
+            "/api/orgs",
             json={"name": "First Org", "slug": "unique-slug"},
         )
         # Try to create second with same slug
         response = await auth_client.post(
-            "/api/orgs/",
+            "/api/orgs",
             json={"name": "Second Org", "slug": "unique-slug"},
         )
         assert response.status_code == 400
@@ -62,11 +62,11 @@ class TestOrgMembership:
         """List orgs returns only orgs user is member of."""
         # Create org (user becomes owner)
         await auth_client.post(
-            "/api/orgs/",
+            "/api/orgs",
             json={"name": "My Org", "slug": "my-org"},
         )
         response = await auth_client.get(
-            "/api/orgs/",
+            "/api/orgs",
         )
         assert response.status_code == 200
         orgs = response.json()
@@ -78,7 +78,7 @@ class TestOrgMembership:
         """Getting org user is not member of returns 403."""
         # Create org as test_user
         await auth_client.post(
-            "/api/orgs/",
+            "/api/orgs",
             json={"name": "Private Org", "slug": "private-org"},
         )
         # Try to access as other_user using async_client with different auth
@@ -100,7 +100,7 @@ class TestOrgMembership:
         """Owner can invite a member to org."""
         # Create org
         await auth_client.post(
-            "/api/orgs/",
+            "/api/orgs",
             json={"name": "Team Org", "slug": "team-org"},
         )
         # Invite other user
@@ -116,7 +116,7 @@ class TestOrgMembership:
     async def test_invite_non_existent_user(self, auth_client: AsyncClient, db_session: AsyncSession):
         """Inviting non-existent user returns 404."""
         await auth_client.post(
-            "/api/orgs/",
+            "/api/orgs",
             json={"name": "Test Org", "slug": "test-invite"},
         )
         response = await auth_client.post(
@@ -131,7 +131,7 @@ class TestOrgMembership:
         """Owner can remove a member from org."""
         # Create org and invite member
         await auth_client.post(
-            "/api/orgs/",
+            "/api/orgs",
             json={"name": "Removable Org", "slug": "removable-org"},
         )
         await auth_client.post(
@@ -150,7 +150,7 @@ class TestOrgMembership:
         """Cannot remove org owner."""
         # Create org
         await auth_client.post(
-            "/api/orgs/",
+            "/api/orgs",
             json={"name": "Owner Org", "slug": "owner-org"},
         )
         # Try to remove self (owner)

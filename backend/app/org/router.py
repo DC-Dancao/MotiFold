@@ -13,7 +13,7 @@ from app.core.security import get_current_user
 
 router = APIRouter()
 
-@router.post("/", response_model=OrganizationOut)
+@router.post("", response_model=OrganizationOut)
 async def create_organization(
     org_data: OrganizationCreate,
     background_tasks: BackgroundTasks,
@@ -49,7 +49,7 @@ async def create_organization(
 
     return org
 
-@router.get("/", response_model=List[OrganizationOut])
+@router.get("", response_model=List[OrganizationOut])
 async def list_organizations(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),

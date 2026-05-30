@@ -153,7 +153,7 @@ export default function MorphologicalTab() {
     try {
       setIsExtracting(true);
       const apiUrl = getApiUrl();
-      const res = await fetchWithAuth(`${apiUrl}/matrix/morphological/extract-question`, {
+      const res = await fetchWithAuth(`${apiUrl}/api/matrix/morphological/extract-question`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ problem_description: problemDescription.trim() })
@@ -178,7 +178,7 @@ export default function MorphologicalTab() {
       setIsExtracting(true);
       try {
         const apiUrl = getApiUrl();
-        const res = await fetchWithAuth(`${apiUrl}/matrix/morphological/extract-question`, {
+        const res = await fetchWithAuth(`${apiUrl}/api/matrix/morphological/extract-question`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ problem_description: problemDesc })
@@ -207,7 +207,7 @@ export default function MorphologicalTab() {
       const workspaceIdStr = localStorage.getItem('motifold_active_workspace_id');
       const workspaceId = workspaceIdStr ? parseInt(workspaceIdStr, 10) : null;
 
-      const res = await fetchWithAuth(`${apiUrl}/matrix/morphological/generate`, {
+      const res = await fetchWithAuth(`${apiUrl}/api/matrix/morphological/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -246,7 +246,7 @@ export default function MorphologicalTab() {
     try {
       setIsEvaluating(true);
       const apiUrl = getApiUrl();
-      const res = await fetchWithAuth(`${apiUrl}/matrix/morphological/evaluate`, {
+      const res = await fetchWithAuth(`${apiUrl}/api/matrix/morphological/evaluate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ analysis_id: currentAnalysisId })
@@ -457,7 +457,7 @@ export default function MorphologicalTab() {
     try {
       setIsSaving(true);
       const apiUrl = getApiUrl();
-      const res = await fetchWithAuth(`${apiUrl}/matrix/morphological`, {
+      const res = await fetchWithAuth(`${apiUrl}/api/matrix/morphological`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -600,7 +600,7 @@ export default function MorphologicalTab() {
     try {
       setIsLoadingSaved(true);
       const apiUrl = getApiUrl();
-      const res = await fetchWithAuth(`${apiUrl}/matrix/morphological`);
+      const res = await fetchWithAuth(`${apiUrl}/api/matrix/morphological`);
       if (res.ok) {
         const data = await res.json();
         setSavedAnalyses(data);
@@ -636,7 +636,7 @@ export default function MorphologicalTab() {
   const deleteAnalysis = async (id: number) => {
     try {
       const apiUrl = getApiUrl();
-      const res = await fetchWithAuth(`${apiUrl}/matrix/morphological/${id}`, {
+      const res = await fetchWithAuth(`${apiUrl}/api/matrix/morphological/${id}`, {
         method: 'DELETE'
       });
       if (res.ok) {
@@ -713,7 +713,7 @@ export default function MorphologicalTab() {
         const fetchAndLoad = async () => {
           try {
             const apiUrl = getApiUrl();
-            const res = await fetchWithAuth(`${apiUrl}/matrix/morphological/${analysisId}`);
+            const res = await fetchWithAuth(`${apiUrl}/api/matrix/morphological/${analysisId}`);
             if (res.ok) {
               const data = await res.json();
               loadAnalysis(data);

@@ -90,9 +90,9 @@ export default function MemoryArea() {
 
       // Load stats and recent in parallel
       const [statsRes, recentRes, hitRateRes] = await Promise.all([
-        fetchWithAuth(`${apiUrl}/memory/${workspaceId}/stats`),
-        fetchWithAuth(`${apiUrl}/memory/${workspaceId}/recent?limit=20`),
-        fetchWithAuth(`${apiUrl}/memory/${workspaceId}/hit-rate`),
+        fetchWithAuth(`${apiUrl}/api/memory/${workspaceId}/stats`),
+        fetchWithAuth(`${apiUrl}/api/memory/${workspaceId}/recent?limit=20`),
+        fetchWithAuth(`${apiUrl}/api/memory/${workspaceId}/hit-rate`),
       ]);
 
       if (!statsRes.ok || !recentRes.ok || !hitRateRes.ok) {
@@ -120,7 +120,7 @@ export default function MemoryArea() {
     try {
       const apiUrl = getApiUrl();
       const res = await fetchWithAuth(
-        `${apiUrl}/memory/${workspaceId}/recall?query=${encodeURIComponent(searchQuery)}&use_multi_strategy=true&limit=10`,
+        `${apiUrl}/api/memory/${workspaceId}/recall?query=${encodeURIComponent(searchQuery)}&use_multi_strategy=true&limit=10`,
         { method: 'POST' }
       );
 
@@ -142,7 +142,7 @@ export default function MemoryArea() {
     try {
       const apiUrl = getApiUrl();
       const res = await fetchWithAuth(
-        `${apiUrl}/memory/${workspaceId}/entities/${encodeURIComponent(entityName)}?limit=20`
+        `${apiUrl}/api/memory/${workspaceId}/entities/${encodeURIComponent(entityName)}?limit=20`
       );
 
       if (res.ok) {

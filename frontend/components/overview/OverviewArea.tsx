@@ -193,7 +193,7 @@ export default function OverviewArea() {
     try {
       const apiUrl = getApiUrl();
       const response = await fetchWithAuth(
-        `${apiUrl}/stats/overview?workspace_id=${workspaceId}`
+        `${apiUrl}/api/stats/overview?workspace_id=${workspaceId}`
       );
 
       if (!response.ok) {

@@ -12,12 +12,11 @@ from app.org.dependencies import get_current_org_membership
 from app.tenant.context import get_current_org
 
 router = APIRouter(
-    prefix="/blackboard",
     tags=["blackboard"],
     responses={404: {"description": "Not found"}},
 )
 
-@router.post("/", response_model=BlackboardResponse)
+@router.post("", response_model=BlackboardResponse)
 async def create_blackboard(
     bb_create: BlackboardCreate,
     request: Request,

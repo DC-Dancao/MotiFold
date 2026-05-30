@@ -44,7 +44,7 @@ from app.matrix.stream import (
     get_processing_status,
 )
 
-router = APIRouter(prefix="/matrix", tags=["matrix"])
+router = APIRouter(tags=["matrix"])
 
 
 @router.post("/morphological/extract-question", response_model=ExtractQuestionResponse)

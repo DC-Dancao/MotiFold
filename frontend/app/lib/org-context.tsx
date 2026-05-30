@@ -43,7 +43,7 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     try {
       const apiUrl = getApiUrl();
-      const response = await fetchWithAuth(`${apiUrl}/api/orgs/`, {
+      const response = await fetchWithAuth(`${apiUrl}/api/orgs`, {
         credentials: 'include',
       });
 

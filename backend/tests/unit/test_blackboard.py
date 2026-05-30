@@ -419,8 +419,8 @@ class TestBlackboardRouter:
         }
 
     def test_router_prefix(self):
-        """Router should have correct prefix and tags."""
-        assert router.prefix == "/blackboard"
+        """Router prefix is configured at include time in main.py, not on the router itself."""
+        assert router.prefix == ""
         assert "blackboard" in router.tags
 
     def test_router_has_responses_404(self):

@@ -166,7 +166,7 @@ export default function McpPanel() {
     setIsLoadingKeys(true);
     try {
       const apiUrl = getApiUrl();
-      const res = await fetchWithAuth(`${apiUrl}/auth/api-keys`);
+      const res = await fetchWithAuth(`${apiUrl}/api/auth/api-keys`);
       if (res.ok) {
         const data = await res.json();
         setApiKeys(data);
@@ -187,7 +187,7 @@ export default function McpPanel() {
       if (expiresDays) {
         body.expires_days = parseInt(expiresDays, 10);
       }
-      const res = await fetchWithAuth(`${apiUrl}/auth/api-key`, {
+      const res = await fetchWithAuth(`${apiUrl}/api/auth/api-key`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -208,7 +208,7 @@ export default function McpPanel() {
     setDeletingKeyId(id);
     try {
       const apiUrl = getApiUrl();
-      const res = await fetchWithAuth(`${apiUrl}/auth/api-key/${keyId}`, {
+      const res = await fetchWithAuth(`${apiUrl}/api/auth/api-key/${keyId}`, {
         method: 'DELETE',
       });
       if (res.ok) {

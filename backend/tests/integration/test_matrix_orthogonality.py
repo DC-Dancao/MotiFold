@@ -34,7 +34,7 @@ async def test_orthogonality_check_endpoint_with_real_llm(
 
     # Call the endpoint
     response = await auth_client.post(
-        "/matrix/morphological/orthogonality-check",
+        "/api/matrix/morphological/orthogonality-check",
         json={"analysis_id": analysis.id},
     )
 

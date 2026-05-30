@@ -17,7 +17,7 @@ from app.memory.service import MemoryService
 from app.core.security import get_current_user
 from app.org.dependencies import get_current_org_membership
 
-router = APIRouter(prefix="/stats", tags=["stats"])
+router = APIRouter(tags=["stats"])
 
 
 @router.get("/overview")

@@ -4,13 +4,23 @@ function getProcessEnv(): NodeJS.ProcessEnv {
   return typeof process !== 'undefined' && process.env ? process.env : ({} as NodeJS.ProcessEnv);
 }
 
+// Strip trailing slashes so callers can safely do `${base}${path}` without
+// risking ``http://backend//api/...`` when env vars accidentally carry a
+// trailing slash (a very common config typo).
+function stripTrailingSlashes(url: string): string {
+  return url.replace(/\/+$/, '');
+}
+
 export function resolveBrowserApiUrl(env?: NodeJS.ProcessEnv) {
   const processEnv = env || getProcessEnv();
-  return processEnv.NEXT_PUBLIC_API_URL || '';
+  return stripTrailingSlashes(processEnv.NEXT_PUBLIC_API_URL || '');
 }
 
 export function resolveServerApiUrl(env?: NodeJS.ProcessEnv) {
-  return (env || getProcessEnv()).INTERNAL_API_URL || (env || getProcessEnv()).API_URL || DEFAULT_SERVER_API_URL;
+  const processEnv = env || getProcessEnv();
+  return stripTrailingSlashes(
+    processEnv.INTERNAL_API_URL || processEnv.API_URL || DEFAULT_SERVER_API_URL
+  );
 }
 
 export function getApiUrl() {

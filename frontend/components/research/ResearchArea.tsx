@@ -97,7 +97,7 @@ export default function ResearchArea() {
   const loadReport = async (id: number) => {
     try {
       const apiUrl = getApiUrl();
-      const res = await fetchWithAuth(`${apiUrl}/research/${id}`);
+      const res = await fetchWithAuth(`${apiUrl}/api/research/${id}`);
       if (res.ok) {
         const data: SavedReport = await res.json();
 
@@ -142,7 +142,7 @@ export default function ResearchArea() {
     // Fetch persisted state from Redis
     const apiUrl = getApiUrl();
     try {
-      const stateRes = await fetchWithAuth(`${apiUrl}/research/${taskId}/state`);
+      const stateRes = await fetchWithAuth(`${apiUrl}/api/research/${taskId}/state`);
       if (stateRes.ok) {
         const state = await stateRes.json();
         if (state.notes) setNotes(state.notes.map((n: string, i: number) => ({ iteration: i, content: n })));
@@ -156,7 +156,7 @@ export default function ResearchArea() {
     }
 
     // Connect to SSE stream
-    const streamUrl = `${apiUrl}/research/${taskId}/stream`;
+    const streamUrl = `${apiUrl}/api/research/${taskId}/stream`;
     const es = new EventSource(streamUrl, { withCredentials: true });
     setEventSource(es);
 
@@ -224,7 +224,7 @@ export default function ResearchArea() {
     if (!currentReportId) return;
     try {
       const apiUrl = getApiUrl();
-      const res = await fetchWithAuth(`${apiUrl}/research/${currentReportId}`, {
+      const res = await fetchWithAuth(`${apiUrl}/api/research/${currentReportId}`, {
         method: 'DELETE',
       });
       if (res.ok) {
@@ -286,7 +286,7 @@ export default function ResearchArea() {
       const { iters, results } = LEVEL_INFO[level];
       setMaxIterations(iters);
 
-      const res = await fetchWithAuth(`${apiUrl}/research/`, {
+      const res = await fetchWithAuth(`${apiUrl}/api/research`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -304,7 +304,7 @@ export default function ResearchArea() {
       const taskData = await res.json();
       const taskId = taskData.task_id || '';
 
-      const streamUrl = `${apiUrl}/research/${taskId}/stream`;
+      const streamUrl = `${apiUrl}/api/research/${taskId}/stream`;
       const es = new EventSource(streamUrl, { withCredentials: true });
       setEventSource(es);
 

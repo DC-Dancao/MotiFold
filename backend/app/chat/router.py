@@ -21,7 +21,7 @@ router = APIRouter()
 
 TITLE_EVENT_PREFIX = "[TITLE]"
 
-@router.get("/", response_model=List[ChatOut])
+@router.get("", response_model=List[ChatOut])
 async def list_chats(
     request: Request,
     workspace_id: int | None = None,
@@ -39,7 +39,7 @@ async def list_chats(
     )
     return result.scalars().all()
 
-@router.post("/", response_model=ChatOut)
+@router.post("", response_model=ChatOut)
 async def create_chat(
     request: Request,
     chat_data: ChatCreate | None = None,
@@ -169,7 +169,7 @@ async def send_message(
     org_schema = getattr(request.state, 'org_schema', None)
     process_message.delay(chat_id, message.content, org_schema, model, solutions_mode)
 
-    return {"status": "processing", "stream_url": f"/chats/{chat_id}/stream"}
+    return {"status": "processing", "stream_url": f"/api/chats/{chat_id}/stream"}
 
 @router.get("/{chat_id}/stream")
 async def stream_chat(

@@ -14,7 +14,7 @@ from app.tenant.context import get_current_org
 
 router = APIRouter()
 
-@router.get("/", response_model=List[WorkspaceOut])
+@router.get("", response_model=List[WorkspaceOut])
 async def list_workspaces(
     request: Request,
     skip: int = 0, limit: int = 20,
@@ -32,7 +32,7 @@ async def list_workspaces(
     )
     return result.scalars().all()
 
-@router.post("/", response_model=WorkspaceOut)
+@router.post("", response_model=WorkspaceOut)
 async def create_workspace(
     workspace_data: WorkspaceCreate,
     request: Request,

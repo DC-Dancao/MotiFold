@@ -21,7 +21,7 @@ from app.text_memory.schemas import (
     TextMemoryListResponse,
 )
 
-router = APIRouter(prefix="/text-memory", tags=["text-memory"])
+router = APIRouter(tags=["text-memory"])
 
 
 async def _verify_workspace_access(

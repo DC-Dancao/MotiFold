@@ -123,7 +123,7 @@ export default function LeftSidebar() {
 
       const apiUrl = getApiUrl();
       const wsQuery = workspaceId ? `&workspace_id=${workspaceId}` : '';
-      const res = await fetchWithAuth(`${apiUrl}/chats/?skip=${currentSkip}&limit=${LIMIT}${wsQuery}`);
+      const res = await fetchWithAuth(`${apiUrl}/api/chats?skip=${currentSkip}&limit=${LIMIT}${wsQuery}`);
 
       if (res.ok) {
         const data = await res.json();
@@ -159,7 +159,7 @@ export default function LeftSidebar() {
     const fetchWorkspaces = async () => {
       try {
         const apiUrl = getApiUrl();
-        const res = await fetchWithAuth(`${apiUrl}/workspaces/`);
+        const res = await fetchWithAuth(`${apiUrl}/api/workspaces`);
         if (res.ok) {
           const data = await res.json();
           if (data.length > 0) {
@@ -176,7 +176,7 @@ export default function LeftSidebar() {
             window.dispatchEvent(new CustomEvent('workspace-changed', { detail: { workspaceId: wsId } }));
           } else {
             // Create default workspace
-            const createRes = await fetchWithAuth(`${apiUrl}/workspaces/`, {
+            const createRes = await fetchWithAuth(`${apiUrl}/api/workspaces`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ name: 'Default Workspace' })
@@ -228,7 +228,7 @@ export default function LeftSidebar() {
     try {
       setIsLoadingBlackboard(true);
       const apiUrl = getApiUrl();
-      const res = await fetchWithAuth(`${apiUrl}/blackboard/history`);
+      const res = await fetchWithAuth(`${apiUrl}/api/blackboard/history`);
       if (res.ok) {
         const data = await res.json();
         setBlackboardHistory(data);
@@ -249,7 +249,7 @@ export default function LeftSidebar() {
     
     try {
       const apiUrl = getApiUrl();
-      const res = await fetchWithAuth(`${apiUrl}/blackboard/${chatToDelete}`, {
+      const res = await fetchWithAuth(`${apiUrl}/api/blackboard/${chatToDelete}`, {
         method: 'DELETE'
       });
       if (res.ok) {
@@ -267,7 +267,7 @@ export default function LeftSidebar() {
     try {
       setIsLoadingMorphological(true);
       const apiUrl = getApiUrl();
-      const res = await fetchWithAuth(`${apiUrl}/matrix/morphological`);
+      const res = await fetchWithAuth(`${apiUrl}/api/matrix/morphological`);
       if (res.ok) {
         const data = await res.json();
         setMorphologicalHistory(data);
@@ -283,7 +283,7 @@ export default function LeftSidebar() {
     try {
       setIsLoadingResearch(true);
       const apiUrl = getApiUrl();
-      const res = await fetchWithAuth(`${apiUrl}/research/history`);
+      const res = await fetchWithAuth(`${apiUrl}/api/research/history`);
       if (res.ok) {
         const data = await res.json();
         setResearchHistory(data);
@@ -330,7 +330,7 @@ export default function LeftSidebar() {
 
     try {
       const apiUrl = getApiUrl();
-      const res = await fetchWithAuth(`${apiUrl}/matrix/morphological/${chatToDelete}`, {
+      const res = await fetchWithAuth(`${apiUrl}/api/matrix/morphological/${chatToDelete}`, {
         method: 'DELETE'
       });
       if (res.ok) {
@@ -350,7 +350,7 @@ export default function LeftSidebar() {
 
     try {
       const apiUrl = getApiUrl();
-      const res = await fetchWithAuth(`${apiUrl}/research/${chatToDelete}`, {
+      const res = await fetchWithAuth(`${apiUrl}/api/research/${chatToDelete}`, {
         method: 'DELETE'
       });
       if (res.ok) {
@@ -456,7 +456,7 @@ export default function LeftSidebar() {
 
     try {
       const apiUrl = getApiUrl();
-      const res = await fetchWithAuth(`${apiUrl}/workspaces/`, {
+      const res = await fetchWithAuth(`${apiUrl}/api/workspaces`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newWorkspaceName.trim() })
@@ -540,7 +540,7 @@ export default function LeftSidebar() {
 
     try {
       const apiUrl = getApiUrl();
-      const res = await fetchWithAuth(`${apiUrl}/api/orgs/`, {
+      const res = await fetchWithAuth(`${apiUrl}/api/orgs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newOrgName.trim(), slug: newOrgSlug.trim().toLowerCase().replace(/\s+/g, '-') })
@@ -571,7 +571,7 @@ export default function LeftSidebar() {
     const chatId = chatToDelete;
     try {
       const apiUrl = getApiUrl();
-      const res = await fetchWithAuth(`${apiUrl}/chats/${chatId}`, {
+      const res = await fetchWithAuth(`${apiUrl}/api/chats/${chatId}`, {
         method: 'DELETE'
       });
       if (res.ok) {

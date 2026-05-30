@@ -33,10 +33,10 @@ from app.research.stream import (
     set_processing_flag,
 )
 
-router = APIRouter(prefix="/research", tags=["research"])
+router = APIRouter(tags=["research"])
 
 
-@router.post("/", response_model=ResearchStatus)
+@router.post("", response_model=ResearchStatus)
 async def start_research(
     request: Request,
     data: ResearchStart,

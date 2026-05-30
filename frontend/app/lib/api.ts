@@ -93,7 +93,7 @@ const redirectToLogin = () => {
 const refreshAuth = async (): Promise<boolean> => {
   if (!refreshPromise) {
     const apiUrl = getApiUrl();
-    refreshPromise = fetch(`${apiUrl}/auth/refresh`, {
+    refreshPromise = fetch(`${apiUrl}/api/auth/refresh`, {
       method: 'POST',
       credentials: 'include'
     })

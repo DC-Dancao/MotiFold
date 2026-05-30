@@ -81,7 +81,7 @@ export default function RAGArea() {
     setIsLoadingReports(true);
     try {
       const apiUrl = getApiUrl();
-      const res = await fetchWithAuth(`${apiUrl}/research/history`);
+      const res = await fetchWithAuth(`${apiUrl}/api/research/history`);
       if (res.ok) {
         const data = await res.json();
         // Filter to only done reports
@@ -102,7 +102,7 @@ export default function RAGArea() {
     setIngestError(null);
     try {
       const apiUrl = getApiUrl();
-      const res = await fetchWithAuth(`${apiUrl}/memory/${workspaceId}/rag/ingest`, {
+      const res = await fetchWithAuth(`${apiUrl}/api/memory/${workspaceId}/rag/ingest`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ report_id: selectedReport.id }),
@@ -136,7 +136,7 @@ export default function RAGArea() {
 
     try {
       const apiUrl = getApiUrl();
-      const res = await fetchWithAuth(`${apiUrl}/memory/${workspaceId}/rag/query?query=${encodeURIComponent(queryText)}`, {
+      const res = await fetchWithAuth(`${apiUrl}/api/memory/${workspaceId}/rag/query?query=${encodeURIComponent(queryText)}`, {
         method: 'POST',
       });
 

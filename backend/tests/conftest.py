@@ -12,9 +12,16 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from app.core.config import settings
 from app.core.security import get_current_user
-from app.core.database import get_alembic_config, get_db
+from app.core.database import get_alembic_config, get_db, get_db_with_schema
 from app.main import app
 from app.auth.models import User
+from app.org.dependencies import get_current_org_membership
+from app.org.models import OrganizationMember
+
+# Pseudo-org slug used by the auth_client fixture below. Tests that need
+# to assert against a specific tenant context should override the
+# X-Org-ID header on the client themselves.
+TEST_ORG_SLUG = "testorg"
 
 # Parse the URL to get connection details for asyncpg
 parsed_url = urlparse("postgresql+asyncpg://user:password@localhost:5434/motifold_test")
@@ -127,12 +134,66 @@ async def other_user(db_session):
     return user
 
 @pytest_asyncio.fixture
-async def auth_client(async_client, test_user):
+async def auth_client(async_client, db_session, test_user):
     """
     自动注入当前测试用户的客户端。
+
+    Also wires up the tenant boundary so the request actually flows
+    through the new ``/api/*`` routes:
+
+    * Ships an ``X-Org-ID`` header on every request, so the
+      ``TenantMiddleware`` sets a non-None org context (mirroring what
+      the frontend always sends after the routing refactor).
+    * Stubs ``get_current_org_membership`` so endpoints don't 400 on a
+      missing real organization row (which the SAVEPOINT-based test
+      session can't safely create — provisioning lives outside the
+      session and would pollute the database).
+    * Stubs ``get_db_with_schema`` to reuse the per-test session
+      without attempting ``SET LOCAL search_path`` to an unprovisioned
+      org schema.
+
+    Caveat — the membership stub means tests CANNOT use ``auth_client``
+    to assert the membership 403 path (missing/insufficient role) or
+    the org-not-active 503 path; the stub bypasses both. Tests that
+    need those negative paths should use ``async_client`` and override
+    ``get_current_user`` themselves, or call the endpoint without
+    ``X-Org-ID``.
+
+    Tests that *do* want to exercise the real provisioner/search_path
+    path should opt out and use ``async_client`` + a session-scoped org
+    fixture instead.
     """
     async def override_get_current_user():
         return test_user
 
+    async def override_get_org_membership():
+        # OrganizationMember.id is String(100) following the convention
+        # ``"{org_id}_{user_id}"`` (see app/org/models.py). organization_id
+        # is hard-coded to 1 because no current endpoint re-fetches the
+        # org row via membership.organization_id — only membership.role
+        # is consulted (in app/org/dependencies.py:require_org_role).
+        # If a future endpoint starts re-querying via this attribute the
+        # test will fail loudly with a missing-row error rather than
+        # silently — that's intentional.
+        return OrganizationMember(
+            id=f"1_{test_user.id}",
+            organization_id=1,
+            user_id=test_user.id,
+            role="owner",
+        )
+
+    async def override_get_db_with_schema():
+        yield db_session
+
     app.dependency_overrides[get_current_user] = override_get_current_user
-    yield async_client
+    app.dependency_overrides[get_current_org_membership] = override_get_org_membership
+    app.dependency_overrides[get_db_with_schema] = override_get_db_with_schema
+    async_client.headers["X-Org-ID"] = TEST_ORG_SLUG
+
+    try:
+        yield async_client
+    finally:
+        async_client.headers.pop("X-Org-ID", None)
+        app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(get_current_org_membership, None)
+        app.dependency_overrides.pop(get_db_with_schema, None)

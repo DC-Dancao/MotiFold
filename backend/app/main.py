@@ -62,7 +62,7 @@ async def combined_lifespan(app: FastAPI):
             yield
 
 
-app = FastAPI(title="Motifold Chat MVP", lifespan=combined_lifespan)
+app = FastAPI(title="Motifold Chat MVP", lifespan=combined_lifespan, redirect_slashes=False)
 
 # Add Tenant Middleware (must be first)
 app.add_middleware(TenantMiddleware)
@@ -78,17 +78,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth_router, prefix="/auth", tags=["auth"])
+# All business routes live under /api/* so we can disambiguate them from
+# frontend pages (e.g. /matrix, /blackboard, /research, /memory) in the
+# Next.js proxy with a single prefix check.
+app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(org_router, prefix="/api/orgs", tags=["organizations"])
-app.include_router(workspace_router, prefix="/workspaces", tags=["workspaces"])
-app.include_router(chat_router, prefix="/chats", tags=["chats"])
-app.include_router(matrix_router, tags=["matrix"])
-app.include_router(notification_router, tags=["notification"])
-app.include_router(blackboard_router, tags=["blackboard"])
-app.include_router(research_router, tags=["research"])
-app.include_router(memory_router, tags=["memory"])
-app.include_router(stats_router, tags=["stats"])
-app.include_router(text_memory_router, tags=["text-memory"])
+app.include_router(workspace_router, prefix="/api/workspaces", tags=["workspaces"])
+app.include_router(chat_router, prefix="/api/chats", tags=["chats"])
+app.include_router(matrix_router, prefix="/api/matrix", tags=["matrix"])
+app.include_router(notification_router, prefix="/api/notifications", tags=["notification"])
+app.include_router(blackboard_router, prefix="/api/blackboard", tags=["blackboard"])
+app.include_router(research_router, prefix="/api/research", tags=["research"])
+app.include_router(memory_router, prefix="/api/memory", tags=["memory"])
+app.include_router(stats_router, prefix="/api/stats", tags=["stats"])
+app.include_router(text_memory_router, prefix="/api/text-memory", tags=["text-memory"])
 
 @app.get("/")
 def read_root():

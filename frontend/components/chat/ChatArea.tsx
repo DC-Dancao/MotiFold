@@ -98,7 +98,7 @@ export default function ChatArea() {
         if (!chatIdParam) {
           const activeWsId = localStorage.getItem('motifold_active_workspace_id');
           const wsQuery = activeWsId ? `?workspace_id=${activeWsId}` : '';
-          const chatsRes = await fetchWithAuth(`${apiUrl}/chats/${wsQuery}`);
+          const chatsRes = await fetchWithAuth(`${apiUrl}/api/chats${wsQuery}`);
 
           if (chatsRes.status === 401) {
             // fetchWithAuth already handles redirect to login if refresh fails
@@ -132,7 +132,7 @@ export default function ChatArea() {
             // Send the pending message
             const resolvedChatId = typeof chatId === 'number' ? chatId : parseInt(chatId as string, 10);
             const idempotencyKey = `msg_${Date.now()}_${Math.random()}`;
-            const msgRes = await fetchWithAuth(`${apiUrl}/chats/${resolvedChatId}/messages`, {
+            const msgRes = await fetchWithAuth(`${apiUrl}/api/chats/${resolvedChatId}/messages`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ content: msgToSend, idempotency_key: idempotencyKey, model: selectedModel })
@@ -154,7 +154,7 @@ export default function ChatArea() {
         setChatTitle('Loading...');
 
         // Fetch chat details for title
-        const chatRes = await fetchWithAuth(`${apiUrl}/chats/${chatId}`);
+        const chatRes = await fetchWithAuth(`${apiUrl}/api/chats/${chatId}`);
         if (chatRes.ok) {
           const chatData = await chatRes.json();
           setChatTitle(chatData.title);
@@ -168,7 +168,7 @@ export default function ChatArea() {
         }
 
         // Fetch messages for chat
-        const msgRes = await fetchWithAuth(`${apiUrl}/chats/${chatId}/messages`);
+        const msgRes = await fetchWithAuth(`${apiUrl}/api/chats/${chatId}/messages`);
 
         if (msgRes.ok) {
           const msgData = await msgRes.json();
@@ -297,7 +297,7 @@ export default function ChatArea() {
           createBody.workspace_id = parseInt(activeWsId, 10);
         }
 
-        const createRes = await fetchWithAuth(`${apiUrl}/chats/`, {
+        const createRes = await fetchWithAuth(`${apiUrl}/api/chats`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(createBody)
@@ -322,7 +322,7 @@ export default function ChatArea() {
 
       const idempotencyKey = `msg_${Date.now()}_${Math.random()}`;
 
-      const res = await fetchWithAuth(`${apiUrl}/chats/${resolvedChatId}/messages`, {
+      const res = await fetchWithAuth(`${apiUrl}/api/chats/${resolvedChatId}/messages`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

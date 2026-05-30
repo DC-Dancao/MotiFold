@@ -16,16 +16,16 @@ pytestmark = pytest.mark.asyncio
 
 
 class TestPathBasedRouting:
-    """Test that /{org_slug}/ paths route correctly."""
+    """The legacy /{org_slug}/<resource> URL form was removed when the API
+    moved entirely under /api/*. This test now just verifies that bare org-slug
+    paths fall through to the normal 404 handling without crashing."""
 
-    async def test_path_based_routing_returns_not_404(self, async_client: AsyncClient):
-        """Test that /{org_slug}/path routes correctly without 404 from routing."""
-        # Access a nonexistent org slug - should not return 404 from routing layer
-        # It may return 404 from business logic (org not found), but routing should work
+    async def test_legacy_org_slug_paths_no_longer_route(self, async_client: AsyncClient):
+        """A bare /{org_slug}/<resource> request should return 404 cleanly."""
         response = await async_client.get("/nonexistent/workspaces")
-        # Should route to workspace list, not 404 from routing
-        # We accept either 404 (org not found) or redirect, not a routing error
+        # No routing crash. Could be 404 from FastAPI or from business logic.
         assert response.status_code != 500
+        assert response.status_code == 404
 
 
 class TestTemplateCloneProvisioning:

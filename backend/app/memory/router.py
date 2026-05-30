@@ -25,7 +25,7 @@ from app.memory.schemas import (
 )
 from pydantic import BaseModel, Field
 
-router = APIRouter(prefix="/memory", tags=["memory"])
+router = APIRouter(tags=["memory"])
 
 
 class RAGIngestRequest(BaseModel):
