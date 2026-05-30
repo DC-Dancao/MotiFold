@@ -1,46 +1,70 @@
+# Development overrides. Layered on top of compose.yaml via:
+#   docker compose -f compose.yaml -f compose.dev.yaml up --build -d
+#
+# Differences from prod:
+#   - Backend services build the `dev` target (extra dev deps + --reload).
+#   - Source is bind-mounted; `/app/.venv` and `/app/logs` are named volumes so
+#     the container can write them as `appuser` without UID juggling against
+#     the host filesystem.
+#   - Frontend runs `pnpm dev` against a bind-mounted source tree, and skips
+#     `pnpm install` when node_modules is already populated.
+#   - All backend services share the dev image tag.
+#
+# Why named volumes for /app/logs and /app/.venv?
+#   Bind-mounting ./backend over /app would otherwise expose host UID/GID to
+#   the container's appuser (UID 1000), which is rarely the host user. Layering
+#   named volumes on top of the bind mount means the container owns those
+#   subpaths exclusively and can write to them freely. Production never sees
+#   this layering — its image-baked /app/logs works unchanged.
+
 services:
   db-migration:
+    image: motifold-backend:${MOTIFOLD_TAG:-dev}
     build:
       target: dev
-    env_file:
-      - ./backend/.env
     environment:
       ENV: development
     volumes:
       - ./backend:/app
       - backend_venv:/app/.venv
+      - backend_logs:/app/logs
 
   api:
+    image: motifold-backend:${MOTIFOLD_TAG:-dev}
     build:
       target: dev
-    env_file:
-      - ./backend/.env
     environment:
       ENV: development
     volumes:
       - ./backend:/app
       - backend_venv:/app/.venv
-    depends_on:
-      db-migration:
-        condition: service_completed_successfully
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+      - backend_logs:/app/logs
 
   celery:
+    image: motifold-backend:${MOTIFOLD_TAG:-dev}
     build:
       target: dev
-    env_file:
-      - ./backend/.env
     environment:
       ENV: development
     volumes:
       - ./backend:/app
       - backend_venv:/app/.venv
-    depends_on:
-      db-migration:
-        condition: service_completed_successfully
+      - backend_logs:/app/logs
     command: watchfiles --filter python "celery -A app.worker:celery_app worker --loglevel=info" app
 
+  celery-beat:
+    image: motifold-backend:${MOTIFOLD_TAG:-dev}
+    build:
+      target: dev
+    environment:
+      ENV: development
+    volumes:
+      - ./backend:/app
+      - backend_venv:/app/.venv
+      - backend_logs:/app/logs
+
   frontend:
+    image: motifold-frontend:${MOTIFOLD_TAG:-dev}
     build:
       context: ./frontend
       target: base
@@ -53,8 +77,20 @@ services:
     volumes:
       - ./frontend:/app
       - frontend_node_modules:/app/node_modules
-    command: sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm dev"
+    # Skip `pnpm install` when node_modules is already populated in the volume
+    # (typical case across container restarts). Re-run install only when the
+    # volume is empty or `node_modules/next` was removed by the developer.
+    command: >
+      sh -c "corepack enable &&
+             (test -d node_modules/next || pnpm install --frozen-lockfile) &&
+             exec pnpm dev"
+    # Override prod's strict health gating on api so the dev frontend can come up
+    # while the backend is still warming up.
+    depends_on:
+      api:
+        condition: service_started
 
 volumes:
   backend_venv:
+  backend_logs:
   frontend_node_modules:

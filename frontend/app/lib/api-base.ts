@@ -1,7 +1,7 @@
 const DEFAULT_SERVER_API_URL = 'http://api:8000';
 
 function getProcessEnv(): NodeJS.ProcessEnv {
-  return typeof process !== 'undefined' && process.env ? process.env : {};
+  return typeof process !== 'undefined' && process.env ? process.env : ({} as NodeJS.ProcessEnv);
 }
 
 export function resolveBrowserApiUrl(env?: NodeJS.ProcessEnv) {

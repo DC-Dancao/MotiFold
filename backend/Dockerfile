@@ -1,66 +1,62 @@
+# syntax=docker/dockerfile:1
+# ================= BASE STAGE =================
+# Common system setup shared by every downstream stage.
 FROM python:3.13-slim AS base
 
-# Install system dependencies
+# curl is needed at runtime for container healthchecks
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv
+# Install uv (Python package installer)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
-
-# Use Tsinghua mirror for PyPI
-ENV UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
 
 WORKDIR /app
 
-# Copy dependency files
-COPY pyproject.toml .python-version ./
-
-# Create a non-root user
+# Create a non-root user used by all runtime stages.
 RUN useradd -m appuser
 
-# ================= PROD STAGE =================
-FROM base AS prod
+# ================= DEPS STAGE =================
+# Install runtime Python dependencies once. Shared by prod / migration / dev.
+# The uv cache mount makes incremental rebuilds nearly instant.
+FROM base AS deps
 
-# Install all dependencies (including ML)
-RUN uv pip install --system -r pyproject.toml
+COPY pyproject.toml .python-version ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system -r pyproject.toml
 
-# Copy the rest of the application
+# ================= APP STAGE =================
+# Copy application source once on top of deps. Reused by prod/migration.
+FROM deps AS app
+
 COPY --chown=appuser:appuser . .
-
 RUN mkdir -p /app/logs && chown appuser:appuser /app/logs
-
 USER appuser
 
-# Default command (can be overridden by compose.yaml)
+# ================= PROD STAGE =================
+FROM app AS prod
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
-# ================= DEV STAGE =================
-FROM base AS dev
-
-# Install dependencies including dev dependencies
-RUN uv pip install --system -r pyproject.toml --group dev
-
-# Copy the rest of the application
-COPY --chown=appuser:appuser . .
-
-RUN mkdir -p /app/logs && chown appuser:appuser /app/logs
-
-USER appuser
-
-# Default command for dev mode
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
-
 # ================= MIGRATION STAGE =================
-# Minimal stage for running migrations — no ML dependencies
-FROM base AS migration
+# Same layers as prod, only the default CMD differs. BuildKit reuses everything.
+FROM app AS migration
+CMD ["alembic", "upgrade", "head"]
 
-RUN uv pip install --system -r pyproject.toml
+# ================= DEV STAGE =================
+# Adds dev-only dependencies (pytest, watchfiles, httpx, ...) on top of deps.
+FROM deps AS dev
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system -r pyproject.toml --group dev
 
 COPY --chown=appuser:appuser . .
-
 RUN mkdir -p /app/logs && chown appuser:appuser /app/logs
 
-USER appuser
+# Intentionally NOT switching to `appuser` here.
+# The dev compose bind-mounts ./backend over /app, exposing host UID/GID to
+# the container. Running dev as root sidesteps the UID-coordination dance
+# entirely; files created from inside the container (rare in normal edit-on-
+# host workflows) will be root-owned on the host. Production inherits from
+# the `app` stage which DOES drop to appuser.
 
-CMD ["alembic", "upgrade", "head"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

@@ -1,6 +1,52 @@
+name: motifold
+
+# ──────────────────────────── Shared fragments ────────────────────────────
+# Proxy variables — used by every backend service that talks to the internet.
+x-proxy-env: &proxy-env
+  HTTP_PROXY: ${HTTP_PROXY:-}
+  HTTPS_PROXY: ${HTTPS_PROXY:-}
+  https_proxy: ${https_proxy:-}
+  http_proxy: ${http_proxy:-}
+  NO_PROXY: ${NO_PROXY:-},host.docker.internal
+  no_proxy: ${no_proxy:-},host.docker.internal
+
+# Log rotation: cap log size so long-running celery workers can't fill the host disk.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+# Build target shared by api / celery / celery-beat — same image, BuildKit caches the layers.
+x-backend-build: &backend-build
+  context: ./backend
+  target: prod
+
+# Common runtime config for every backend service.
+x-backend-base: &backend-base
+  image: motifold-backend:${MOTIFOLD_TAG:-latest}
+  pull_policy: build
+  env_file:
+    - ./backend/.env
+  environment: *proxy-env
+  init: true
+  restart: unless-stopped
+  logging: *default-logging
+  networks:
+    - internal
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    db-migration:
+      condition: service_completed_successfully
+
+# ───────────────────────────────── Services ─────────────────────────────────
 services:
   postgres:
-    image: postgres:15
+    image: postgres:15.10-alpine
+    shm_size: 256m
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
@@ -13,29 +59,46 @@ services:
       test: ["CMD-SHELL", "pg_isready -U user -d motifold"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 15s
     restart: unless-stopped
+    init: true
+    logging: *default-logging
+    networks:
+      - internal
 
   redis:
-    image: redis:7
+    image: redis:7.4-alpine
+    command: redis-server --appendonly yes
     ports:
       - "16379:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 5s
     restart: unless-stopped
+    init: true
+    logging: *default-logging
+    networks:
+      - internal
 
+  # Runs once on every `up` to apply schema migrations.
   db-migration:
+    image: motifold-backend-migration:${MOTIFOLD_TAG:-latest}
+    pull_policy: build
     build:
       context: ./backend
       target: migration
     env_file:
       - ./backend/.env
+    environment: *proxy-env
+    logging: *default-logging
+    networks:
+      - internal
     depends_on:
       postgres:
         condition: service_healthy
@@ -43,79 +106,72 @@ services:
     restart: "no"
 
   api:
-    build:
-      context: ./backend
-      target: prod
+    <<: *backend-base
+    build: *backend-build
     ports:
       - "18000:8000"
-    env_file:
-      - ./backend/.env
-    environment:
-      - HTTP_PROXY=${HTTP_PROXY:-}
-      - HTTPS_PROXY=${HTTPS_PROXY:-}
-      - https_proxy=${https_proxy:-}
-      - http_proxy=${http_proxy:-}
-      - NO_PROXY=${NO_PROXY:-},host.docker.internal
-      - no_proxy=${no_proxy:-},host.docker.internal
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      db-migration:
-        condition: service_completed_successfully
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
-    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    networks:
+      - internal
+      - edge
 
   celery:
-    build:
-      context: ./backend
-      target: prod
-    env_file:
-      - ./backend/.env
-    environment:
-      - HTTP_PROXY=${HTTP_PROXY:-}
-      - HTTPS_PROXY=${HTTPS_PROXY:-}
-      - https_proxy=${https_proxy:-}
-      - http_proxy=${http_proxy:-}
-      - NO_PROXY=${NO_PROXY:-},host.docker.internal
-      - no_proxy=${no_proxy:-},host.docker.internal
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      db-migration:
-        condition: service_completed_successfully
+    <<: *backend-base
+    build: *backend-build
     command: celery -A app.worker:celery_app worker --loglevel=info
-    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.worker:celery_app inspect ping -d celery@$$HOSTNAME"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   celery-beat:
-    build:
-      context: ./backend
-      target: prod
-    env_file:
-      - ./backend/.env
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      db-migration:
-        condition: service_completed_successfully
+    <<: *backend-base
+    build: *backend-build
     command: celery -A app.worker:celery_app beat --loglevel=info --schedule /app/logs/celerybeat-schedule
-    restart: unless-stopped
 
   frontend:
+    image: motifold-frontend:${MOTIFOLD_TAG:-latest}
+    pull_policy: build
     build:
       context: ./frontend
+      args:
+        # NEXT_PUBLIC_API_URL is baked into the client bundle at build time.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
     ports:
       - "13000:3000"
     environment:
       NODE_ENV: production
+    init: true
     restart: unless-stopped
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - edge
 
 volumes:
   postgres_data:
   redis_data:
-  frontend_node_modules:
+
+networks:
+  # Internal services (DB / Redis / API / workers) — never exposed to the host.
+  internal:
+    driver: bridge
+  # Edge network for anything that needs to reach the user (frontend + API).
+  edge:
+    driver: bridge
