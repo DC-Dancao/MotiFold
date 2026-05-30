@@ -8,7 +8,7 @@ function isTokenExpired(token: string) {
     const payload = JSON.parse(atob(token.split('.')[1]));
     const exp = payload.exp * 1000;
     return Date.now() >= exp - 5000; // 5 seconds buffer
-  } catch (e) {
+  } catch {
     return true;
   }
 }
@@ -185,7 +185,7 @@ export async function proxy(req: NextRequest) {
 
     return res;
   } catch (error) {
-    console.error('Middleware refresh failed:', error);
+    console.error('Proxy refresh failed:', error);
     const res = NextResponse.redirect(new URL('/login', req.url));
     res.cookies.delete('motifold_token');
     res.cookies.delete('motifold_refresh_token');
