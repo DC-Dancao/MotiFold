@@ -23,7 +23,7 @@ export default function GlobalNotification() {
     const isLoginPage = typeof window !== 'undefined' && window.location.pathname.startsWith('/login');
     if (isLoginPage) return;
 
-    const streamUrl = '/notifications/stream';
+    const streamUrl = '/api/notifications/stream';
     let aborted = false;
     let retryTimeout: ReturnType<typeof setTimeout> | null = null;
 

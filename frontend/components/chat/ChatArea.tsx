@@ -185,7 +185,7 @@ export default function ChatArea() {
   }, [chatIdParam, chatId, isNewChat]);
   // Start SSE stream for chat response
   const startChatStream = (resolvedChatId: number) => {
-    const streamUrl = `/chats/${resolvedChatId}/stream`;
+    const streamUrl = `/api/chats/${resolvedChatId}/stream`;
     const eventSource = new EventSource(streamUrl, { withCredentials: true });
 
     let assistantMessageContent = '';
@@ -220,7 +220,7 @@ export default function ChatArea() {
 
         // Refetch title if it was "New Chat"
         if (chatTitle === 'New Chat' || chatTitle === 'Loading...') {
-          fetchWithAuth(`${getApiUrl()}/chats/${resolvedChatId}`)
+          fetchWithAuth(`${getApiUrl()}/api/chats/${resolvedChatId}`)
           .then(res => res.json())
           .then(data => {
             if (data.title && data.title !== 'New Chat') {

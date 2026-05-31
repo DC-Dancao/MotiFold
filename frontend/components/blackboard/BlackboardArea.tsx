@@ -70,7 +70,7 @@ export default function BlackboardArea() {
 
     const connect = async () => {
       try {
-        const response = await fetch('/notifications/stream', {
+        const response = await fetch('/api/notifications/stream', {
           credentials: 'include',
           signal: controller.signal,
         });

@@ -62,7 +62,7 @@ export default function Tab4Convergence({ analysisId, parameters, matrixData }: 
     setLoading(true);
     setError(null);
     try {
-      const res = await fetchWithAuth(`${getApiUrl()}/matrix/morphological/solutions/${analysisId}`, {
+      const res = await fetchWithAuth(`${getApiUrl()}/api/matrix/solutions/${analysisId}`, {
         method: 'GET'
       });
       if (res.ok) {
@@ -80,7 +80,7 @@ export default function Tab4Convergence({ analysisId, parameters, matrixData }: 
   const runClustering = async () => {
     setLoading(true);
     try {
-      const res = await fetchWithAuth(`${getApiUrl()}/matrix/morphological/cluster`, {
+      const res = await fetchWithAuth(`${getApiUrl()}/api/matrix/cluster`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ analysis_id: analysisId, max_clusters: 5 })
@@ -100,7 +100,7 @@ export default function Tab4Convergence({ analysisId, parameters, matrixData }: 
   const suggestWeights = async () => {
     setLoading(true);
     try {
-      const res = await fetchWithAuth(`${getApiUrl()}/matrix/morphological/ahp-suggest`, {
+      const res = await fetchWithAuth(`${getApiUrl()}/api/matrix/ahp-suggest`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ analysis_id: analysisId })
@@ -124,7 +124,7 @@ export default function Tab4Convergence({ analysisId, parameters, matrixData }: 
   const runScoring = async () => {
     setLoading(true);
     try {
-      const res = await fetchWithAuth(`${getApiUrl()}/matrix/morphological/score`, {
+      const res = await fetchWithAuth(`${getApiUrl()}/api/matrix/score`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ analysis_id: analysisId, weights })
